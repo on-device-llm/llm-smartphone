@@ -1,0 +1,13 @@
+# Fichiers de brouillon (commentaires/explications internes) — ne pas publier
+prototype-cli/*_detail.py
+prototype-cli/*_details.py
+scripts/*_details.sh
+
+# Artefacts Python
+__pycache__/
+*.pyc
+
+# Artefacts de build Android
+prototype-android/**/build/
+prototype-android/.gradle/
+prototype-android/local.properties
