@@ -1,390 +1,217 @@
-# Chapitre 1 — État de l'Art : LLMs Embarqués sur Smartphone
+# Chapitre 1 : État de l'Art : LLMs Embarqués sur Smartphone
 
-> **Mémoire PFE** — Intelligence Artificielle, Master Informatique  
-> Rédigé en juillet 2026
+## Introduction et contexte
 
----
+L'essor des grands modèles de langage (LLMs) depuis la publication de GPT-3 par Brown et al. [1] a ouvert une problématique centrale : comment déployer ces systèmes aux capacités remarquables sur des dispositifs à ressources limitées ? Alors que GPT-3 mobilise 175 milliards de paramètres et nécessite plusieurs centaines de gigaoctets de mémoire GPU, la recherche s'est orientée vers des modèles compacts capables de s'exécuter directement sur smartphones, sans dépendance permanente au cloud, un paradigme désigné par l'expression *inférence embarquée* (*on-device inference*).
 
-## 1. Introduction et contexte
+Cette tendance répond à des enjeux concrets. Selon GSMA Intelligence [2], on compte en 2024 plus de 5,6 milliards d'abonnés mobiles uniques dans le monde (69 % de la population mondiale). Le smartphone est aujourd'hui le premier dispositif d'accès à l'information numérique, y compris dans des zones à connectivité intermittente. L'inférence de LLMs directement sur ces appareils est devenue techniquement viable depuis 2023 grâce à la convergence de trois facteurs : la miniaturisation des modèles (distillation, quantification), l'amélioration des SoCs mobiles (NPU/DSP), et le développement de frameworks d'inférence optimisés.
 
-L'inférence de modèles de langage (LLM) directement sur des appareils mobiles représente l'une des évolutions les plus significatives du domaine de l'IA depuis 2023. Longtemps cantonnée aux serveurs cloud, l'exécution de LLMs sur smartphone est devenue techniquement viable grâce à la convergence de trois facteurs : la miniaturisation des modèles (distillation, quantification), l'amélioration des SoCs mobiles (NPU/DSP), et le développement de frameworks d'inférence optimisés.
+Concrètement, il s'agit de permettre des interactions en temps réel, sans connexion réseau et sans envoi de données à un serveur distant, sur des appareils dont la RAM dépasse rarement 12 Go et dont la puissance de calcul ne représente qu'une fraction de celle d'un GPU de datacenter. Ce chapitre présente les solutions disponibles en 2024-2026, compare leurs performances, et analyse les différences architecturales entre exécution locale et architectures hybrides edge + cloud. Ces éléments servent de base au protocole expérimental détaillé au chapitre 2.
 
-L'enjeu est considérable : il s'agit de permettre des interactions intelligentes en **temps réel, sans connexion réseau, avec préservation de la vie privée**, sur des appareils dont la RAM dépasse rarement 12 Go et dont la puissance de calcul représente une fraction d'un GPU de datacenter.
+## 1.1 Fondements théoriques : des grands modèles aux modèles embarqués
 
-Ce chapitre dresse un panorama des solutions disponibles en 2025-2026, compare leurs performances, et analyse les différences architecturales entre exécution purement locale et architectures hybrides edge+cloud.
+Avant de présenter les modèles et frameworks concrets, cette section pose les briques théoriques qui rendent l'inférence embarquée possible. Brown et al. [1] montrent avec GPT-3 que les capacités émergentes (few-shot, zero-shot) apparaissent brusquement à partir d'un certain seuil de paramètres, et non progressivement. Cela pose la question centrale de ce chapitre : comment rendre ces capacités accessibles sur un appareil de 6 Go de RAM ?
 
----
+La quantification est la première réponse technique à cette question. Dettmers et al. [3] introduisent LLM.int8(), qui résout le problème des outliers par une décomposition mixte (0,1 % des poids en FP16, le reste en INT8) : division de la mémoire par deux avec moins de 1 % de dégradation. Frantar et al. [4] franchissent une étape supplémentaire avec GPTQ : descente à INT4 par minimisation d'erreur couche par couche, permettant à un LLaMA 7B de passer de 14 Go (FP16) à environ 4 Go (INT4). Le format GGUF [5] standardise la distribution de ces modèles quantifiés dans un fichier unique portable, avec plus de 100 000 fichiers publiés sur HuggingFace en 2024. Une synthèse récente [31] conclut que l'INT4 représente le meilleur compromis qualité/performance pour les modèles 3-7B sur flagship, avec une réduction documentée de 68,66 % pour LLaMA 3.2 3B après GPTQ INT4, un résultat cohérent avec le seuil critique de 3,5 bits par poids établi par la littérature plus récente [29] (section 1.5).
 
-## 2. Panorama des modèles disponibles pour smartphone
+Le fine-tuning efficace constitue la deuxième brique. Dettmers et al. [6] introduisent QLoRA : quantification NF4 combinée à des adaptateurs LoRA bas-rang, permettant le fine-tuning d'un modèle 65B sur un seul GPU A100 48 Go. Google exploite directement ce principe dans ML Kit GenAI [12] via des adaptateurs LoRA spécialisés par tâche (résumé, relecture, réponse guidée). Enfin, la distillation de connaissance, posée par Hinton et al. [7], permet à un modèle étudiant d'imiter les soft targets d'un modèle enseignant plus grand. Cette technique est omniprésente dans les modèles mobiles actuels : LLaMA 3.2 1B/3B [16] sont distillés depuis LLaMA 3.1 8B, et Apple Intelligence [19] est distillé depuis un mélange d'experts (MoE) à 64 experts, pour une réduction de 90 % du coût d'entraînement. Ces quatre techniques (quantification, GGUF, QLoRA et distillation) forment la base théorique commune à tous les modèles présentés dans la suite de ce chapitre.
 
-### 2.1 Chronologie de l'émergence des LLMs mobiles
+## 1.2 Panorama des modèles disponibles pour smartphone
 
-L'histoire des LLMs embarqués est récente mais dense :
+Le paysage des modèles adaptés au smartphone s'est considérablement enrichi depuis 2023, porté par les principaux acteurs de l'IA ainsi que par des laboratoires de recherche spécialisés. L'histoire est récente mais dense : llama.cpp [8] tourne sur iPhone dès août 2023, Gemini Nano [9] est annoncé avec le Pixel 8 Pro en décembre 2023, Google publie Gemma [10] 2B/7B en février 2024, Microsoft publie Phi-3 Mini [18] en mars 2024, MLC-LLM [15] supporte les GPU Mali en juillet 2024, Meta publie LLaMA 3.2 [16] 1B et 3B en septembre 2024 comme premier Llama explicitement mobile-first, ML Kit GenAI [12] devient disponible en preview en octobre 2024, Gemini Nano 2 est déployé sur Pixel 9 et Galaxy S25 en janvier 2025, Google publie Gemma 4 en avril 2025, et ML Kit GenAI v1.0 devient stable en juin 2025.
 
-| Période | Événement clé |
-|---|---|
-| Août 2023 | llama.cpp tourne sur iPhone (Georgi Gerganov) — démonstration de principe |
-| Décembre 2023 | Gemini Nano annoncé avec Pixel 8 Pro — premier LLM propriétaire on-device grand public |
-| Février 2024 | Google publie Gemma 2B/7B (open source, optimisé mobile) |
-| Mars 2024 | Microsoft publie Phi-3 Mini (3,8B, conçu pour mobile) |
-| Juillet 2024 | MLC-LLM 0.15 supporte les GPU Mali (MediaTek/Samsung) |
-| Septembre 2024 | Meta publie LLaMA 3.2 1B et 3B — premier Llama explicitement "mobile-first" |
-| Octobre 2024 | ML Kit GenAI (Google) disponible en preview — API Android pour Gemini Nano |
-| Janvier 2025 | Gemini Nano 2 déployé sur Pixel 9 et Galaxy S25 |
-| Avril 2025 | Google publie Gemma 4 (variantes Edge 2B/4B, optimisées NPU) |
-| Juin 2025 | ML Kit GenAI v1.0 stable — API officielle pour développeurs Android |
+### 1.2.1 Google : Gemini Nano, Flash/Flash-Lite et Gemma
 
-### 2.2 Familles de modèles et acteurs principaux
+Gemini Nano [9] est le modèle propriétaire de Google destiné à l'exécution on-device, décliné en Nano-1 (1,8 B, tâches de résumé et suggestion de réponse, déployé sur Pixel 8 Pro) et Nano-2 (~3,25 B, 79,6 % MMLU, surpassant plusieurs modèles deux fois plus grands, moteur de Pixel 9 et Galaxy S25/S26). Les deux variantes ne sont pas distribuées directement : elles sont accessibles uniquement via AICore [13], service système Android qui gère le cycle de vie du modèle, l'accélération NPU et l'isolation de confidentialité, exposé aux développeurs via ML Kit GenAI [12] ou MediaPipe LLM Inference API [14]. Distinction essentielle pour ce PIR : contrairement à Gemini Nano, Gemini Flash et Flash-Lite [11] ne s'exécutent pas localement sur le smartphone. Ce sont des modèles cloud optimisés pour la faible latence, accessibles via l'API Gemini depuis une application mobile. Ils s'intègrent typiquement dans une architecture hybride où l'application décide, selon la complexité de la tâche, de solliciter Gemini Nano on-device ou Gemini Flash via l'API cloud (section 1.6). Gemma [10], famille open source de Google disponible en GGUF pour llama.cpp ou via LiteRT, comprend Gemma 2 2B IT (2,6 B, ~1,5 Go, 51,3 % MMLU), Gemma 2 9B IT (9 B, ~5,5 Go, 71,3 %), Gemma 3 4B IT (4 B, contexte 32 768, 59,6 %) et les variantes Edge de Gemma 4 (E2B et E4B, ~1,2 et ~2,4 Go), spécifiquement optimisées pour les NPU mobiles via le format LiteRT.
 
-#### 2.2.1 Google — Gemini Nano et Gemma
+### 1.2.2 Meta : LLaMA 3.2
 
-**Gemini Nano** est le modèle propriétaire de Google destiné à l'exécution on-device. Il n'est pas distribué directement : les développeurs y accèdent via l'API ML Kit GenAI ou AICore.
+LLaMA 3.2 1B Instruct (1,24 B, ~771 Mo, contexte théorique 128 000, 32,2 % MMLU) et 3B Instruct (3,21 B, ~2,0 Go, 58,0 % MMLU) [16] sont les seules versions réalistes pour un déploiement smartphone. La fenêtre de contexte théorique de 128 000 tokens est irréaliste en pratique mobile faute de RAM suffisante ; les contextes pratiques sont de 2 048 à 4 096 tokens. LLaMA 3.2 1B est le modèle standard retenu pour les benchmarks du chapitre 2, en tant que référence minimale pour un déploiement ARM64.
 
-| Version | Contexte | Disponibilité | Appareils |
-|---|---|---|---|
-| Gemini Nano 1 | ~2 048 tokens | Pixel 8 Pro uniquement | Historique (2023) |
-| Gemini Nano 2 | ~2 048 tokens | Pixel 9/10, Galaxy S25/S26 | Production (2025) |
-| Gemini Nano 2 Multimodal | ~2 048 tokens + vision | Pixel 9 Pro, Galaxy S25 Ultra | Production (2025) |
+### 1.2.3 Microsoft : Phi-3/Phi-4 Mini
 
-**Gemma** est la famille open source de Google, disponible en GGUF pour llama.cpp ou via LiteRT/Google AI Edge.
+Microsoft a adopté une approche « small but capable » avec la série Phi [18] : Phi-3 Mini 4K et 128K (3,8 B, ~2,3 Go, 68,8 % MMLU), Phi-3.5 Mini (69,0 %) et Phi-4 Mini (72,8 %). Abdin et al. montrent que Phi-3 Mini dépasse Mistral 7B sur MMLU (68,8 % vs 61,7 %) et atteint 82,5 % sur GSM8K grâce à des données synthétiques distillées depuis GPT-4, le meilleur score de raisonnement arithmétique parmi les modèles inférieurs à 4B (section 1.3). Cette famille se distingue par un score très élevé pour sa taille, au prix d'un fort biais anglophone et d'une performance dégradée en français.
 
-| Modèle | Paramètres | Taille Q4 | Contexte | Benchmark (MMLU) |
-|---|---|---|---|---|
-| Gemma 2 2B IT | 2,6 B | ~1,5 Go | 8 192 | 51,3 % |
-| Gemma 2 9B IT | 9 B | ~5,5 Go | 8 192 | 71,3 % |
-| Gemma 3 4B IT | 4 B | ~2,5 Go | 32 768 | 59,6 % |
-| Gemma 4 E2B (Edge) | 2 B | ~1,2 Go | 8 192 | 56 % (est.) |
-| Gemma 4 E4B (Edge) | 4 B | ~2,4 Go | 8 192 | 62 % (est.) |
+### 1.2.4 Apple et directions de recherche complémentaires
 
-Les variantes **Edge** de Gemma 4 sont spécifiquement optimisées pour les NPU mobiles via le format LiteRT.
+Apple a adopté une approche radicalement fermée avec Apple Intelligence [19] (iOS 18+) : un modèle d'environ 3B de paramètres compressé à 2 bits/poids, exécuté via le Neural Engine, avec une technique de KV Cache Sharing réduisant de 37,5 % la mémoire et le temps jusqu'au premier token. Ces modèles sont inaccessibles sur Android et ne sont pas traités en détail dans ce PIR, mais servent de point de comparaison pour situer l'écosystème Android (section 1.6). Deux directions de recherche complémentaires méritent mention : MobileLLM [17] (Meta Research), qui montre qu'à l'échelle sub-milliard l'architecture prime sur les données : un modèle profond et fin surpasse systématiquement un modèle large et plat de même taille, avec des performances proches de LLaMA 2 7B. PowerInfer-2 [20] exploite quant à lui la sparsité des activations (30 % de neurones actifs par token) en streamant les poids inactifs depuis le stockage flash. Il exécute ainsi TurboSparse-Mixtral 47B sur smartphone à 11,68 tokens/s, soit 22× plus vite que llama.cpp.
 
-#### 2.2.2 Meta — LLaMA 3.2
+| **Modèle**    | **Éd.**   | **Params** | **Taille Q4** | **RAM min** | **MMLU** | **Français** | **Exécution**       |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| LLaMA 3.2 1B  | Meta      | 1,2 B      | 771 Mo        | 3 Go        | 32 %     | Moyen        | On-device           |
+| LLaMA 3.2 3B  | Meta      | 3,2 B      | 2,0 Go        | 5 Go        | 58 %     | Bon          | On-device           |
+| Gemma 2 2B    | Google    | 2,6 B      | 1,5 Go        | 4 Go        | 51 %     | Moyen        | On-device           |
+| Gemma 4 E2B   | Google    | 2 B        | 1,2 Go        | 3 Go        | 56 %     | Bon          | On-device           |
+| Phi-4 Mini    | Microsoft | 3,8 B      | 2,3 Go        | 5 Go        | 73 %     | Faible       | On-device (MIT)     |
+| Qwen 2.5 1.5B | Alibaba   | 1,5 B      | 900 Mo        | 3 Go        | 46 %     | Très bon     | On-device           |
+| Gemini Nano 2 | Google    | ~3,25 B   | N/A (AICore)  | Géré AICore | 79,6 %   | Bon          | On-device (AICore)  |
+| Gemini Flash  | Google    | —          | —             | N/A         | —        | Excellent    | Hybride (API cloud) |
+| MobileLLM 1B  | Meta      | <1 B      | ~500 Mo      | ~0,9 Go    | ~52 %   | Faible       | On-device           |
 
-Meta a publié en septembre 2024 les premiers LLaMA explicitement conçus pour mobile :
+**Tableau 1.1 :** Comparaison des modèles LLM disponibles pour smartphone
 
-| Modèle | Paramètres | Taille Q4 | Contexte | Benchmark (MMLU) |
-|---|---|---|---|---|
-| LLaMA 3.2 1B Instruct | 1,24 B | ~771 Mo | 128 000 | 32,2 % |
-| LLaMA 3.2 3B Instruct | 3,21 B | ~2,0 Go | 128 000 | 58,0 % |
+## 1.3 Comparaison des capacités qualitatives
 
-La fenêtre de contexte théorique de 128 000 tokens est irréaliste en pratique mobile (RAM insuffisante). Les contextes pratiques sont de 2 048–4 096 tokens. LLaMA 3.2 1B est le modèle standard pour nos benchmarks : il constitue la référence minimale pour un déploiement ARM64.
+Au-delà du seul score MMLU, les capacités pratiques des modèles divergent selon quatre axes : raisonnement, instruction-following, support multilingue et tâches pratiques mobiles, des critères aussi déterminants que la taille ou la vitesse brute pour choisir un modèle en contexte réel. Sur le raisonnement et l'arithmétique, le benchmark GSM8K est un indicateur robuste : Phi-3 Mini domine avec 82,5 %, LLaMA 3.2 3B atteint environ 58 %, Gemma 2 2B environ 46 %, tandis que les modèles sub-milliard comme MobileLLM montrent des limitations importantes sur les tâches multi-étapes (moins de 20 %). Aucun modèle inférieur à 4B ne dépasse 70 % sur ARC-Challenge, ce qui situe clairement le plafond de qualité des solutions on-device face au cloud.
 
-#### 2.2.3 Microsoft — Phi-3 / Phi-4 Mini
+Sur l'instruction-following, Gemini Nano-2 excelle en résumé, reformulation et complétion guidée grâce à ses adaptateurs QLoRA par tâche ; Phi-3 Mini présente le meilleur instruction-following général parmi les modèles open source inférieurs à 4B ; LLaMA 3.2 3B offre de bonnes performances en conversation mais décroche sur les instructions complexes à contraintes multiples ; Gemma 2 2B est particulièrement adapté à la classification et l'extraction d'entités. Sur le support multilingue, Gemini Nano bénéficie d'un support robuste natif avec des performances en français proches de l'anglais ; Gemma 2 2B couvre correctement les 35 langues du préentraînement Gemini ; Phi-3 Mini souffre d'un préentraînement orienté anglais (15 à 20 % de baisse en français) ; LLaMA 3.2 se situe entre les deux avec un biais anglophone marqué.
 
-Microsoft a adopté une approche "small but capable" avec la série Phi :
+| **Modèle**    | **Raisonnement** | **Instruct.** | **Multilingue** | **Tâches mobiles**          |
+| --- | --- | --- | --- | --- |
+| Gemini Nano-2 | Moyen            | Excellent     | Excellent       | Résumé, relecture           |
+| Phi-3 Mini    | Excellent        | Très bon      | Moyen           | QA, code                    |
+| LLaMA 3.2 3B  | Bon              | Bon           | Moyen           | Chat, QA                    |
+| Gemma 2 2B    | Moyen            | Bon           | Bon             | Classification, NER         |
+| MobileLLM 1B  | Faible           | Moyen         | Faible          | Suggestion, auto-complétion |
+| Gemini Flash  | Élevé            | Excellent     | Excellent       | Toutes (hybride)            |
 
-| Modèle | Paramètres | Taille Q4 | Contexte | Benchmark (MMLU) |
-|---|---|---|---|---|
-| Phi-3 Mini 4K | 3,8 B | ~2,3 Go | 4 096 | 68,8 % |
-| Phi-3 Mini 128K | 3,8 B | ~2,3 Go | 128 000 | 68,8 % |
-| Phi-3.5 Mini | 3,8 B | ~2,3 Go | 128 000 | 69,0 % |
-| Phi-4 Mini | 3,8 B | ~2,3 Go | 16 384 | 72,8 % |
+**Tableau 1.2 :** Comparaison des capacités qualitatives par modèle
 
-Phi-3/4 Mini se distingue par son score MMLU très élevé pour sa taille, au prix d'un fort biais anglophone et d'une performance dégradée en français.
+Enfin, quatre catégories de tâches structurent l'essentiel des cas d'usage on-device : résumé de contenu, suggestion de réponse, classification locale et extraction d'information. Chacune est contrainte différemment selon l'API level Android et le SoC ciblé : ML Kit GenAI/AICore exige Android 10+ et un appareil certifié ; llama.cpp via Termux est compatible Android 7+ sur tout ARM64 sans restriction matérielle ; MLC-LLM cible Android 8+ avec GPU Vulkan recommandé ; MediaPipe LLM API cible Android 10+ avec délégué GPU.
 
-#### 2.2.4 Apple — OpenELM et Apple Intelligence
+## 1.4 Contraintes matérielles des smartphones
 
-Apple a adopté une approche radicalement fermée avec **Apple Intelligence** (iOS 18+), qui intègre plusieurs modèles on-device (2B–3B de paramètres estimés) via le Neural Engine. OpenELM (1B–3B) est la branche open source publiée pour la recherche.
+L'exécution d'un LLM sur smartphone est soumise à des contraintes radicalement différentes du serveur. Le Snapdragon 8 Gen 3 [21], pris comme référence haut de gamme 2024, illustre la répartition typique d'un SoC mobile moderne : CPU Cortex-X4 à 3,3 GHz, GPU Adreno 750 (4,7 TFLOPS FP16), NPU Hexagon (98 TOPS INT8) et 16 Go de LPDDR5X. Le NPU Hexagon accélère le prefill d'un facteur 50× par rapport au CPU sur LLaMA 2 7B [22]. Cet écart explique pourquoi les solutions exploitant le NPU (ML Kit GenAI, LiteRT) surclassent largement le CPU pur (llama.cpp) sur les appareils compatibles.
 
-Ces modèles sont inaccessibles sur Android et ne seront pas traités dans ce PFE.
+Côté mémoire, Android consomme à lui seul 4 à 6 Go sur les 12-16 Go disponibles d'un appareil moderne. La phase de decode étant memory-bound, la bande passante mémoire prime sur la puissance de calcul brute : un Snapdragon 8 Gen 3 offre environ 77 Go/s en LPDDR5X contre environ 34 Go/s pour un Exynos 1380 en LPDDR4X [22], ce qui explique l'essentiel de l'écart de performances observé entre familles de SoC, un écart que confirment les mesures du chapitre 2 entre Snapdragon et Exynos. La fenêtre de contexte consomme également de la RAM proportionnellement à sa taille via le KV cache : 2 048 tokens représentent environ 500 Mo supplémentaires pour un modèle 2B, 8 192 tokens environ 2 Go supplémentaires, ce qui devient critique sur un appareil à 6 Go de RAM totale.
 
-#### 2.2.5 Autres modèles notables
+Enfin, la consommation énergétique et le throttling thermique sont la principale source d'instabilité. La littérature \[22, 23\] rapporte une consommation de 5 à 10 % de batterie par 10 minutes de génération intensive ; les NPU réduisent cette consommation de 3 à 5× par rapport au GPU. Le throttling thermique dégrade les performances de 10 à 20 % en session longue, et jusqu'à 15 à 25 % sur les appareils milieu de gamme. Ces ordres de grandeur servent de référence directe pour les mesures de terrain présentées au chapitre 2, qui montrent des chutes de performance globalement inférieures sur le modèle 1B testé, à l'exception de deux appareils spécifiques.
 
-| Modèle | Acteur | Paramètres | Particularité |
-|---|---|---|---|
-| Mistral 7B | Mistral AI | 7,3 B | Trop lourd pour la majorité des smartphones (>4 Go Q4) |
-| Qwen 2.5 1.5B | Alibaba | 1,5 B | Excellent support CJK, bon support français |
-| SmolLM 2 1.7B | Hugging Face | 1,7 B | Conçu pour edge, contexte 8K |
-| MobileLLM 1B | Meta Research | 1 B | Recherche — non distribué publiquement |
-| PowerInfer-2 | SJTU | Variable | Exploite la sparsité des activations pour modèles 7B+ |
+## 1.5 Frameworks d'inférence mobile
 
----
+llama.cpp [8], développé par Georgi Gerganov en 2023, est devenu le standard de facto pour l'inférence de LLMs quantifiés sur CPU, avec une implémentation C/C++ zéro-dépendance exploitant ARM NEON et AVX2 et le format GGUF [5] natif. Il est compatible avec tout ARM64 Android sans NPU requis, fonctionne via Termux sans root ni Android Studio, mais reste CPU-only sur la grande majorité des appareils Android faute de support GPU Mali. C'est le framework de référence retenu pour le benchmark de ce PIR, tous appareils confondus.
 
-## 3. Comparaison des modèles : taille, latence, capacités
+ML Kit GenAI (AICore) \[12, 13\], introduit par Google en 2024, est l'API officielle pour accéder à Gemini Nano via l'AICore d'Android, exposant des cas d'usage intégrés (résumé, relecture, réécriture, description d'image) via des adaptateurs QLoRA [6] par tâche. Elle offre un accès au NPU pour des performances maximales et une API simple en Kotlin/Java, mais reste limitée aux appareils certifiés (Pixel 9/10, Galaxy S25/S26), excluant environ 95 % du parc Android mondial, avec un modèle non modifiable et un quota d'inférence par application. C'est la solution Google propriétaire testée sur Galaxy S26 dans ce PIR.
 
-### 3.1 Tableau de comparaison général
+LiteRT, anciennement TensorFlow Lite, est le runtime d'inférence Google pour modèles .tflite ; en 2024, Google a migré TFLite vers LiteRT et ajouté le support LLM via le framework AI Edge LLM Inference. Ce framework supporte NPU et GPU et est utilisé par Google AI Edge Gallery pour Gemma 4 Edge. Il est plus portable que ML Kit GenAI, mais nécessite un format de conversion non trivial depuis GGUF. MediaPipe LLM Inference API [14] offre une alternative plus flexible reposant sur le même runtime : elle supporte Gemma, Phi-2 et Falcon 1B via un pipeline unifié, sans exiger d'appareil certifié. MLC-LLM [15], du groupe MLC AI, utilise Apache TVM pour compiler des modèles directement en code GPU/NPU optimisé ; c'est le seul framework open source à exploiter réellement les GPU Mali via Vulkan, 20 à 25 % plus rapide que llama.cpp sur Snapdragon 8 Gen 3 et Dimensity 9300, au prix d'une compilation par cible matérielle et d'un écosystème de modèles plus restreint que GGUF.
 
-| Modèle | Params | Taille Q4 | RAM min | Decode (tok/s)* | MMLU | Français | Licence |
-|---|---|---|---|---|---|---|---|
-| LLaMA 3.2 1B | 1,2 B | 771 Mo | 3 Go | 15–50 | 32 % | Moyen | Llama 3.2 Community |
-| LLaMA 3.2 3B | 3,2 B | 2,0 Go | 5 Go | 10–25 | 58 % | Bon | Llama 3.2 Community |
-| Gemma 2 2B | 2,6 B | 1,5 Go | 4 Go | 12–35 | 51 % | Moyen | Gemma |
-| Gemma 4 E2B | 2 B | 1,2 Go | 3 Go | 15–40 | 56 % | Bon | Gemma |
-| Phi-4 Mini | 3,8 B | 2,3 Go | 5 Go | 8–20 | 73 % | Faible | MIT |
-| Qwen 2.5 1.5B | 1,5 B | 900 Mo | 3 Go | 15–45 | 46 % | Très bon | Apache 2.0 |
-| Gemini Nano 2 | ~2 B (est.) | N/A (AICore) | Géré AICore | 20–60** | ~72 % | Bon | Propriétaire |
-| SmolLM 2 1.7B | 1,7 B | 1,0 Go | 3 Go | 20–50 | 40 % | Moyen | Apache 2.0 |
+| **Critère**    | **llama.cpp**  | **MLC-LLM**        | **ML Kit GenAI**    | **MediaPipe LLM**    |
+| --- | --- | --- | --- | --- |
+| Modèles        | GGUF universel | TVM compilé        | Gemini Nano seul    | Gemma, Phi-2, Falcon |
+| GPU Mali       | Non            | Oui (Vulkan)       | NPU AICore          | Oui (Vulkan/OpenCL)  |
+| Android min.   | 7+             | 8+                 | 10+ certifié        | 10+                  |
+| Appareils      | Tout ARM64     | Tout (Vulkan rec.) | Flagships certifiés | Tout (GPU)           |
+| Perf. relative | 1×             | ~1,2-1,25×        | ~1,5-2×            | ~1,0-1,1×           |
+| Open source    | Oui (MIT)      | Oui (Apache 2)     | Non                 | Oui (Apache 2)       |
 
-\* Decode en tokens/s sur un Snapdragon 8 Gen 2 ou équivalent, via llama.cpp (sauf mention).  
-\*\* Estimation basée sur les benchmarks Google ; mesures exactes dépendantes de l'AICore.
+**Tableau 1.3 :** Comparaison des frameworks d'inférence mobile
 
-### 3.2 Contraintes matérielles
+Au-delà des caractéristiques techniques, le portage effectif se heurte à des écarts matériels significatifs : Fassold [23] confirme un écart de performance iOS/Android de 3× (Apple Neural Engine contre GPU OpenCL) et un throttling thermique de 15 à 25 % sur le milieu de gamme après seulement 5 minutes d'utilisation. Ces chiffres se comparent directement aux mesures obtenues en conditions réelles au chapitre 2, qui confirment partiellement cette fourchette sur les appareils Exynos d'entrée de gamme testés.
 
-L'exécution d'un LLM sur smartphone est soumise à des contraintes radicalement différentes du serveur :
+## 1.6 Exécution locale pure vs architecture hybride (edge + cloud)
 
-**RAM** : La quantification est indispensable. Un modèle FP16 de 7B paramètres nécessite ~14 Go de RAM — hors de portée de tout smartphone actuel. Avec Q4_K_M, on descend à ~4 Go, viable sur appareils haut de gamme.
+L'exécution entièrement locale signifie que le modèle tourne sur l'appareil sans aucun appel réseau. Elle garantit une vie privée maximale, une disponibilité hors-ligne totale, une latence déterministe et un coût opérationnel nul, mais souffre d'une qualité limitée aux modèles 1-7B en pratique, insuffisante pour le raisonnement multi-étapes complexe face à GPT-4o ou Gemini Flash, d'un contexte court (2 048-4 096 tokens en pratique), d'une dégradation thermique sur sessions longues et d'un espace de stockage requis de 1 à 5 Go par modèle téléchargé. Ses cas d'usage idéaux restent le clavier prédictif, les suggestions en temps réel, le résumé de notes, l'extraction d'entités et le chatbot FAQ hors-ligne. Deux directions de recherche visent à dépasser ces limitations sans quitter le paradigme local : Yin et al. [25] proposent le LLM comme service partagé au niveau du système d'exploitation, avec une réduction de 72 % de la RAM par mutualisation entre applications ; Ye et al. [26], avec prima.cpp, démontrent une inférence distribuée sur un cluster Wi-Fi domestique atteignant 674 ms/token pour un modèle 70B avec moins de 6 % de RAM consommée par appareil.
 
-**Contexte vs RAM** : La fenêtre de contexte consomme de la RAM proportionnellement à sa taille (KV cache). En pratique :
-- 2 048 tokens : ~500 Mo supplémentaires pour un modèle 2B
-- 8 192 tokens : ~2 Go supplémentaires — critique sur 6 Go RAM
+L'architecture hybride combine un modèle local léger et un service cloud plus puissant, avec un routeur qui décide où exécuter chaque requête selon sa complexité. C'est précisément le positionnement de Gemini Flash et Flash-Lite [11] face à Gemini Nano (section 1.2). Le schéma ci-dessous illustre ce mécanisme de routage :
 
-**Thermique** : Le throttling thermique est la principale source d'instabilité. Après 5–10 minutes d'inférence intensive, les SoCs réduisent leur fréquence de 20–40 %, dégradant les performances de façon notable (documenté dans le chapitre 2 de ce PFE).
+![](media/image1.png)
 
-**NPU vs CPU** : Les frameworks exploitant le NPU (AICore, LiteRT) peuvent offrir 2–4× le débit CPU à puissance équivalente, mais nécessitent la quantification INT8/INT4 et des formats propriétaires.
+**Figure 1.1 :** Mécanisme de routage d'une architecture hybride edge + cloud.
 
----
+| **Critère**              | **Local pur**  | **Hybride** | **Cloud pur** |
+| --- | --- | --- | --- |
+| Confidentialité          | Totale         | Partielle   | Nulle         |
+| Qualité de réponse       | Limitée (1-7B) | Élevée      | Maximale      |
+| Disponibilité hors-ligne | Totale         | Dégradée    | Nulle         |
+| Latence                  | Faible         | Variable    | Réseau        |
+| Coût opérationnel        | Nul            | Modéré      | Élevé         |
 
-## 4. Frameworks d'inférence mobile
+**Tableau 1.4 :** Comparaison des architectures d'exécution locale, hybride et cloud
 
-### 4.1 llama.cpp
+Apple pousse cette logique plus loin avec Private Cloud Compute (PCC) : les requêtes dépassant le modèle embarqué sont acheminées vers des serveurs Apple Silicon offrant des garanties cryptographiquement vérifiables, données supprimées immédiatement après traitement et inaccessibles même au personnel Apple. Ce modèle est aujourd'hui une référence en matière d'architecture hybride respectueuse de la vie privée. Cinq positionnements coexistent dans ce PIR : llama.cpp + LLaMA 3.2 1B (100 % local, benchmarking et R&D), ML Kit GenAI/Gemini Nano (100 % local via AICore, apps grand public sur flagship), Google AI Edge Gallery (100 % local via LiteRT, démonstration Gemma Edge), Gemini Flash API (100 % cloud, référence qualité) et l'architecture hybride (local + cloud, production scalable).
 
-Développé par Georgi Gerganov (2023), **llama.cpp** est devenu le standard de facto pour l'inférence de LLMs quantifiés sur CPU. Il utilise le format GGUF (GPT-Generated Unified Format).
+## 1.7 Critères de choix d'une solution
 
-**Points forts :**
-- Compatible avec tout ARM64 Android (pas de NPU requis)
-- Supporte Q2_K à Q8_0 — flexibilité de quantification
-- Très actif (commits quotidiens), large écosystème GGUF
-- Fonctionne via Termux sans root ni Android Studio
+Le choix d'un framework et d'un modèle dépend de plusieurs critères interdépendants. Sur le parc cible, ML Kit GenAI est idéal si l'on cible uniquement les flagships 2024+ (Pixel 9/10, Galaxy S25/S26) ; pour tout autre appareil Android, llama.cpp reste la seule option CPU universelle. Sur le contrôle du modèle, si le PIR ou l'application requiert un modèle fine-tuné ou personnalisé, ML Kit GenAI est exclu d'office car le modèle est figé, alors que llama.cpp ou MLC-LLM permettent de charger n'importe quel GGUF. Sur les performances, ML Kit GenAI via NPU surpasse llama.cpp sur les appareils compatibles, mais MLC-LLM via Vulkan offre les meilleures performances sur les appareils non compatibles AICore. Sur la vie privée, les deux solutions restent locales, bien que ML Kit GenAI puisse potentiellement transmettre des métadonnées à Google. Sur la reproductibilité enfin, llama.cpp est entièrement open source et reproductible sur n'importe quelle machine, tandis que ML Kit GenAI dépend d'un écosystème Google propriétaire susceptible d'évoluer sans préavis. Cette tension entre flexibilité universelle et performance optimisée sur un parc restreint justifie l'étude conjointe des deux solutions dans ce PIR.
 
-**Points faibles :**
-- CPU-only sur la grande majorité des appareils Android (pas de support GPU Mali)
-- N'exploite pas les NPU Snapdragon ni MediaTek
-- Performances limitées vs frameworks hardware-aware
+## 1.8 Études de performance publiées et positionnement du PIR
 
-**Cas d'usage principal dans ce PFE** : benchmark de référence sur CPU ARM64, tous appareils Android.
+Plusieurs travaux récents mesurent les performances de LLMs sur appareils réels et forment un cadre de comparaison direct pour les résultats de ce PIR. Xu et al. [22] couvrent 11 appareils COTS avec llama.cpp et MLC-LLM : sur Snapdragon 8 Gen 3, le prefill atteint 30 à 56 tokens/s en INT8. MLC-LLM se situe 20 à 25 % au-dessus de llama.cpp, avec un throttling thermique de 10 à 20 % en session longue. PalmBench [27] propose un benchmark systématique de LLMs compressés sur plateformes mobiles avec llama.cpp, couvrant latence CPU/GPU, consommation énergétique et empreinte mémoire. C'est la méthodologie la plus proche du protocole adopté dans ce PIR, ici étendue aux appareils Samsung Exynos entrée/milieu de gamme absents de PalmBench. MobileAIBench [28] évalue llama.cpp sur appareils réels avec 20 datasets couvrant NLP, tâches multimodales et sécurité ; il complète l'approche de ce PIR, centrée sur les métriques d'exécution.
 
-### 4.2 ML Kit GenAI (AICore)
+Song et al. [29] évaluent 7 méthodes PTQ sur des modèles de 0,5B à 14B paramètres et établissent un seuil critique à 3,5 bits par poids (BPW) : en dessous de cette densité, la qualité chute significativement, et un grand modèle quantifié Q4 dépasse même un petit modèle FP16 de taille inférieure. Le format Q4_K_M (~4,5 BPW) utilisé dans ce PIR se situe au-dessus de ce seuil critique, ce qui valide indépendamment le choix de quantification retenu. Tummalapalli et al. [30] mesurent un Galaxy S24 Ultra et un iPhone 16 Pro sous charge soutenue avec Qwen 2.5 1.5B Q4 : le GPU du S24 Ultra subit un arrêt complet de l'inférence par throttling thermique lors des sessions prolongées, un phénomène qui converge avec les mesures sur Galaxy S26 du chapitre 2 (−17,3 % de dégradation thermique confirmée). PowerInfer-2 [20] et sa décomposition en clusters de neurones, avec 29,2× d'accélération théorique, représentent une direction de recherche avancée non encore reproduite de manière indépendante.
 
-Introduit par Google en 2024, **ML Kit GenAI** est l'API officielle pour accéder à Gemini Nano via l'AICore d'Android. L'AICore est un service système qui gère le modèle, son téléchargement, et l'accès au NPU.
+## 1.9 Tendances et perspectives (2025-2027)
 
-**Points forts :**
-- Accès au NPU Snapdragon/Tensor — performances maximales
-- API simple (Kotlin/Java, quelques dizaines de lignes)
-- Gestion automatique du modèle (téléchargement, mise à jour)
-- Cas d'usage built-in : résumé, correction grammaticale
+Plusieurs évolutions se dessinent pour l'écosystème mobile d'ici 2027. La compression agressive se poursuit vers la quantification INT2 (2 bits par paramètre) : des travaux comme QuaRot, GPTQ [4] et BitNet.cpp suggèrent que des modèles 7B en INT2 (~3,5 Go) deviendront viables sur les appareils haut de gamme dès 2026, tandis que QLoRA [6] reste la référence pour personnaliser ces modèles compressés après coup. La tendance lourde est par ailleurs le passage du CPU au NPU comme cible d'inférence principale, avec des performances 5 à 10× supérieures au CPU à consommation équivalente. Le décodage spéculatif, où un modèle local léger génère des tokens candidats vérifiés par un modèle plus grand, réduit la latence de 2 à 3× dans les configurations hybrides ; prima.cpp [26] atteint ainsi 26 tokens/s pour un modèle 32B en configuration distribuée.
 
-**Points faibles :**
-- Appareils certifiés seulement (Pixel 9/10, Galaxy S25/S26 en 2025)
-- Modèle non modifiable ou remplaçable
-- Exclut ~95 % du parc Android
-- Exige Android Studio pour le développement
+Des travaux académiques (Yin et al. [25]) proposent par ailleurs de déporter le modèle LLM au niveau du système d'exploitation, partagé entre applications comme un service OS. Cette direction est déjà amorcée par AICore [13] côté Android et par Apple Intelligence [19] côté iOS ; elle éliminerait la duplication des modèles en mémoire. Les modèles multimodaux progressent également : Gemini Nano 2 Multimodal [9] et Apple Intelligence supportent déjà l'analyse d'images localement, et Gemma 3 introduit le support vision natif pour ses variantes 4B et 12B. Enfin, l'architecture agentique on-device (ReAct, Tool-calling) reste limitée par les capacités de raisonnement des petits modèles, mais progresse via le protocole MCP et les recherches sur les Small Action Models. Des applications concrètes sont attendues pour 2026-2027.
 
-**Cas d'usage dans ce PFE** : solution Google propriétaire, testée sur Galaxy S26 Ultra.
+## 1.10 Synthèse et conclusion
 
-### 4.3 LiteRT (anciennement TensorFlow Lite)
+| **Axe**             | **Situation 2025-2026**       | **Horizon 2027**              |
+| --- | --- | --- |
+| Modèles disponibles | 1-4B paramètres viables       | 7-13B viables (INT2)          |
+| Frameworks matures  | llama.cpp (CPU), ML Kit (NPU) | MLC-LLM + LiteRT convergence  |
+| Parc compatible NPU | Flagships uniquement (~5 %)  | Haut/milieu de gamme          |
+| Qualité vs cloud    | Écart MMLU de 15-30 pts       | Écart de 5-15 pts             |
+| Cas d'usage matures | FAQ, résumé, classification   | Agents, RAG local             |
+| Thermique           | Problème non résolu           | Amélioration partielle (3nm+) |
 
-**LiteRT** est le runtime d'inférence Google pour modèles `.tflite`. En 2024, Google a migré TFLite vers LiteRT et ajouté le support LLM via le framework "AI Edge LLM Inference".
+**Tableau 1.5 :** Synthèse de l'état de l'art et perspectives 2027
 
-**Points forts :**
-- Supporte NPU et GPU (délégués NNAPI, GPU, Hexagon)
-- Utilisé par Google AI Edge Gallery pour Gemma 4 Edge
-- Plus portable que ML Kit GenAI (pas de restriction AICore)
+L'exécution de LLMs sur smartphone est passée, en moins de trois ans, du statut de curiosité technique à celui de réalité déployée sur des centaines de millions d'appareils via Galaxy AI et Apple Intelligence. Les avancées en quantification, en distillation et en architectures compactes ont rendu l'exécution locale viable ; les SoCs modernes offrent une puissance suffisante pour des modèles de 1 à 4B paramètres, confirmée par la littérature comme par les mesures propres de ce PIR.
 
-**Points faibles :**
-- Nécessite le format `.task` / `.tflite` (conversion depuis GGUF non triviale)
-- Écosystème moins mature que llama.cpp pour les modèles open source
-
-### 4.4 MLC-LLM
-
-**MLC-LLM** (Machine Learning Compilation for LLMs) du groupe MLC AI utilise Apache TVM pour compiler des modèles directement en code GPU/NPU optimisé.
-
-**Points forts :**
-- Seul framework open source à exploiter les GPU Mali (Vulkan) et Adreno
-- Performances proches du NPU sur certains SoCs
-- Modèles pré-compilés disponibles pour Android
-
-**Points faibles :**
-- Installation complexe (compilation requise pour chaque cible)
-- Taille des packages compilés importante
-- Moins de modèles disponibles que GGUF
-
-### 4.5 MediaPipe LLM Inference
-
-API Google (2024) intégrée dans MediaPipe, elle permet l'inférence de modèles Gemma au format `.task` :
-
-```
-MediaPipe → LiteRT runtime → CPU/GPU Adreno (Vulkan) / NPU
-```
-
-**Points forts :**
-- Support Vulkan (GPU Adreno) → exploit du hardware Snapdragon
-- Compatible avec Gemma 2/3/4, Phi-2, Falcon
-
-**Points faibles :**
-- Limité aux modèles au format MediaPipe Task
-- Moins flexible que llama.cpp pour le choix du modèle
-
-### 4.6 Comparaison des frameworks
-
-| Framework | CPU ARM64 | GPU Mali | GPU Adreno | NPU Snapdragon | Facilité | Modèles |
-|---|---|---|---|---|---|---|
-| llama.cpp | ✅ Excellent | ❌ Non | ❌ Non | ❌ Non | ★★★★★ | Tous GGUF |
-| ML Kit GenAI | ✅ | ❌ | ✅ | ✅ Natif | ★★★★ | Gemini Nano uniquement |
-| LiteRT | ✅ | ⚠️ | ✅ | ⚠️ NNAPI | ★★★ | Gemma Edge |
-| MLC-LLM | ✅ | ✅ Vulkan | ✅ Vulkan | ⚠️ | ★★ | Gemma, Llama, Phi |
-| MediaPipe | ✅ | ⚠️ | ✅ Vulkan | ⚠️ | ★★★ | Gemma, Phi-2 |
-
----
-
-## 5. Exécution locale pure vs architecture hybride (edge + cloud)
-
-### 5.1 Exécution 100% locale
-
-L'exécution entièrement locale signifie que le modèle tourne sur l'appareil, sans aucun appel réseau.
-
-**Avantages :**
-- **Vie privée maximale** : les données ne quittent jamais l'appareil
-- **Disponibilité hors-ligne** : fonctionne sans connexion (zones rurales, avion, réseau instable)
-- **Latence déterministe** : pas de jitter réseau, temps de réponse prévisible
-- **Coût zéro** : pas d'abonnement API, pas de quota
-
-**Inconvénients :**
-- **Qualité limitée** : les modèles <4B paramètres ne rivalisent pas avec GPT-4o ou Gemini Flash (cloud)
-- **Contexte court** : contrainte RAM → 2 048–4 096 tokens max en pratique
-- **Thermique** : sessions longues dégradées par le throttling
-- **Espace stockage** : modèles de 1–5 Go à télécharger
-
-**Cas d'usage idéaux :** clavier prédictif, suggestions en temps réel, résumé de notes, extraction d'entités, chatbot FAQ offline.
-
-### 5.2 Architecture hybride (edge + cloud)
-
-L'architecture hybride combine un modèle local léger et un service cloud plus puissant, avec un routeur qui décide où exécuter chaque requête.
-
-```
-Requête utilisateur
-        ↓
-    Routeur local
-    (règles + LLM léger)
-        ↓
- ┌──────────────────────────────────┐
- │ Tâche simple + contexte court   │  → Modèle local (Gemini Nano / Gemma 2B)
- │ FAQ, résumé court, classification│    Réponse : 0,5–3 s
- └──────────────────────────────────┘
-        OU
- ┌──────────────────────────────────┐
- │ Tâche complexe / contexte long  │  → API cloud (Gemini Flash / GPT-4o)
- │ Raisonnement, analyse doc, code │    Réponse : 0,5–2 s (réseau)
- └──────────────────────────────────┘
-```
-
-**Critères de routage typiques :**
-
-| Signal | Action |
-|---|---|
-| Longueur du contexte > 1 500 tokens | → Cloud |
-| Question contenant des mathématiques / code complexe | → Cloud |
-| Appareil en mode offline | → Local (forcé) |
-| Requête de résumé < 500 mots | → Local |
-| Utilisateur hors données mobiles | → Local |
-
-**Avantages de l'hybride :**
-- Meilleure qualité sur les tâches complexes
-- Économie de batterie (tâches simples restent locales)
-- Résilience offline partielle
-
-**Inconvénients :**
-- Complexité architecturale accrue
-- Latence imprévisible (dépend du réseau pour les requêtes cloud)
-- Coût API pour la partie cloud
-
-### 5.3 Positionnement des solutions étudiées
-
-| Solution | Mode | Cas d'usage principal |
-|---|---|---|
-| llama.cpp + LLaMA 3.2 1B | 100% local | Benchmarking, apps offline, R&D |
-| ML Kit GenAI (Gemini Nano) | 100% local (AICore) | Apps grand public sur flagship |
-| Google AI Edge Gallery | 100% local (LiteRT) | Démonstration / évaluation Gemma Edge |
-| Gemini Flash API | 100% cloud | Référence qualité pour comparaison |
-| Architecture hybride | Local + cloud | Production scalable |
-
----
-
-## 6. Critères de choix d'une solution
-
-Le choix d'un framework et d'un modèle dépend de plusieurs critères interdépendants :
-
-**1. Parc cible :** ML Kit GenAI est idéal si on cible uniquement les flagships 2024+ (Pixel 9/10, Galaxy S25/S26). Pour tout autre appareil Android, llama.cpp est la seule option CPU universelle.
-
-**2. Contrôle du modèle :** Si le PFE ou l'application requiert un modèle fine-tuné ou personnalisé, ML Kit GenAI est exclu (modèle figé). llama.cpp ou MLC-LLM permettent de charger n'importe quel GGUF.
-
-**3. Performances :** Sur les appareils compatibles, ML Kit GenAI via NPU surpasse llama.cpp (CPU). Sur les appareils non compatibles AICore, MLC-LLM via Vulkan offre les meilleures performances.
-
-**4. Vie privée :** Les deux solutions (llama.cpp et ML Kit GenAI) sont locales. ML Kit GenAI peut potentiellement envoyer des métadonnées à Google (termes de service à vérifier).
-
-**5. Reproductibilité :** llama.cpp est entièrement open source et reproductible sur n'importe quelle machine. ML Kit GenAI dépend d'un écosystème Google propriétaire susceptible d'évoluer.
-
----
-
-## 7. Tendances et perspectives (2025–2027)
-
-### 7.1 Compression agressive des modèles
-
-La recherche sur la quantification INT2 (2 bits par paramètre) progresse rapidement. Des travaux comme QuaRot, GPTQ et BitNet.cpp suggèrent que des modèles 7B en INT2 (3,5 Go) deviendront viables sur les appareils haut de gamme 2026.
-
-### 7.2 NPU comme cible principale
-
-La tendance lourde est le passage du CPU au NPU comme cible d'inférence principale. Apple Neural Engine, Snapdragon NPU (Hexagon), et les NPU Google Tensor montrent des performances 5–10× supérieures au CPU à consommation équivalente.
-
-### 7.3 LLM as a System Service
-
-Des travaux académiques (Yin et al., 2024) proposent de déporter le modèle LLM au niveau du système d'exploitation, partagé entre applications — comme un service OS. Android 16 explore cette direction avec AICore. Cette approche éliminerait la duplication des modèles en mémoire (chaque app chargeant son propre modèle actuellement).
-
-### 7.4 Modèles multimodaux on-device
-
-Gemini Nano 2 Multimodal et Phi-3 Vision montrent que la vision (image → texte) devient accessible on-device en 2025. Les modèles audio (transcription) sont déjà matures (Whisper.cpp sur mobile).
-
-### 7.5 Agents on-device
-
-L'architecture agentique on-device (ReAct, Tool-calling) reste limitée par les capacités de raisonnement des petits modèles, mais progresse. Le protocole MCP (Anthropic, 2024) et les recherches sur les "Small Action Models" (SAM) ouvrent des perspectives pour 2026–2027.
-
-### 7.6 Benchmarks empiriques publiés (2024–2026)
-
-Plusieurs travaux récents mesurent les performances LLM sur appareils réels et constituent un cadre de comparaison direct pour les résultats de ce PFE.
-
-**PalmBench** [22] (Li et al., 2024) propose un benchmark systématique de LLMs compressés sur plateformes mobiles (Google Pixel, iPhone) avec llama.cpp, couvrant latence CPU/GPU, consommation énergétique et empreinte mémoire. La méthodologie est la plus proche du protocole adopté dans ce PFE — nos mesures prefill/decode/throttling suivent une logique comparable, étendue aux appareils Samsung Exynos entrée/milieu de gamme absents de PalmBench.
-
-**MobileAIBench** [23] (Murthy et al., NeurIPS 2024) évalue llama.cpp sur appareils réels avec 20 datasets couvrant NLP, tâches multimodales et sécurité. Son focus sur la diversité des évaluations qualitatives complète notre approche centrée sur les métriques d'exécution (tok/s, RAM, thermique).
-
-**Systematic Evaluation** [24] (Song et al., 2025) évalue 7 méthodes PTQ sur des modèles de 0,5B à 14B paramètres et établit un seuil critique à 3,5 BPW : en dessous de cette densité de bits, la qualité chute de façon significative. Autre résultat notable : un grand modèle quantifié Q4 dépasse un petit modèle FP16 de taille inférieure. Le format Q4_K_M (~4,5 BPW) utilisé dans ce PFE est au-dessus du seuil critique — validation indépendante du choix de quantification.
-
-**LLM Inference at the Edge** [25] (Tummalapalli et al., 2026) mesure un Galaxy S24 Ultra (Snapdragon 8 Gen 3) et un iPhone 16 Pro sous charge soutenue de 20 itérations avec Qwen 2.5 1.5B Q4. Résultat clé : le GPU du S24 Ultra subit un arrêt complet de l'inférence GPU par throttling thermique lors des sessions prolongées. Ce phénomène converge avec nos mesures sur Galaxy S26 Ultra (Snapdragon 8 Elite) : −17,3 % de dégradation thermique confirmée. Les deux appareils haut de gamme Snapdragon montrent une vulnérabilité thermique sous charge continue absente des appareils milieu de gamme.
-
-**PowerInfer-2** [26] (Xue et al., 2024) propose une décomposition en clusters de neurones atteignant 29,2× d'accélération, permettant théoriquement l'exécution d'un modèle 47B sur smartphone. Ces résultats, non encore reproduits de manière indépendante, représentent une direction de recherche avancée.
-
-**Positionnement du PFE** : aucun de ces travaux ne couvre simultanément (1) les appareils Samsung Exynos entrée/milieu de gamme (A16, A26), (2) la comparaison systématique Termux vs UserLAnd, et (3) une mesure triple llama.cpp + LiteRT + cloud API sur le même appareil. Le PFE comble ces trois lacunes.
-
----
-
-## 8. Synthèse
-
-| Axe | Situation 2025–2026 | Horizon 2027 |
-|---|---|---|
-| Modèles disponibles | 1–4B paramètres viables | 7–13B viables (INT2) |
-| Frameworks matures | llama.cpp (CPU), ML Kit (NPU) | MLC-LLM + LiteRT convergence |
-| Parc compatible NPU | Flagships uniquement (~5 %) | Haut/milieu de gamme |
-| Qualité vs cloud | MMLU gap de 15–30 pts | Gap de 5–15 pts |
-| Cas d'usage matures | FAQ, résumé, classification | Agents, RAG local |
-| Thermique | Problème non résolu | Partielle amélioration (3nm+) |
-
-L'exécution de LLMs sur smartphone est passée en 2023–2025 du statut de curiosité technique à celui de réalité déployée sur des centaines de millions d'appareils (via Galaxy AI, Apple Intelligence). Les deux solutions étudiées dans ce PFE — llama.cpp côté open source, ML Kit GenAI / Gemini Nano côté Google — représentent les deux pôles de ce spectre : flexibilité universelle vs performance optimisée sur parc restreint.
-
----
+Deux approches structurent aujourd'hui ce paysage. D'un côté, l'approche propriétaire (Google AICore et Gemini Nano, Apple Intelligence) exploite des NPU dédiés, au prix d'une dépendance matérielle stricte limitée à environ 5 % du parc Android mondial. De l'autre, l'écosystème open source (llama.cpp, MLC-LLM, Gemma) offre une flexibilité maximale sur tout appareil ARM64, mais avec des performances brutes inférieures sur les appareils compatibles NPU. Gemini Flash et Flash-Lite couvrent le segment hybride à haute capacité : une troisième voie où le choix ne se pose plus entre local et cloud, mais dans l'orchestration des deux. Cette tension entre flexibilité universelle et performance optimisée sur un parc restreint, ainsi que la troisième voie hybride, oriente les choix méthodologiques du chapitre suivant, consacré au déploiement effectif et à la mesure des performances sur des appareils réels.
 
 ## Références
 
-- Gerganov, G. (2023). *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*. GitHub.
-- Google DeepMind (2024). *Gemma: Open Models Based on Gemini Research and Technology*. arXiv:2403.08295.
-- Meta AI (2024). *The Llama 3 Herd of Models*. arXiv:2407.21783.
-- Microsoft (2024). *Phi-3 Technical Report: A Highly Capable Language Model Locally on Your Phone*. arXiv:2404.14219.
-- Xu et al. (2024). *Understanding LLMs Running on Consumer Devices*. arXiv:2410.03613.
-- Yin et al. (2024). *LLM as a System Service on Mobile Devices*. arXiv:2403.11805.
-- Google (2024). *ML Kit GenAI APIs*. developers.google.com/ml-kit/genai.
-- Google (2024). *Android AICore*. developer.android.com/ml/aicore.
-- Ye et al. (2025). *Prima.cpp: Speeding Up 70B-Scale LLM Inference on Low-Resource Everyday Home Clusters*. arXiv:2504.08791.
-- Apple ML Research (2024). *Apple Intelligence Foundation Language Models*. arXiv:2507.13575.
-- [22] Li et al. (2024). *PalmBench: A Comprehensive Benchmark of Compressed Large Language Models on Mobile Platforms*. arXiv:2410.05315.
-- [23] Murthy et al. (2024). *MobileAIBench: Benchmarking LLMs and LMMs for On-Device Use Cases*. NeurIPS 2024. arXiv:2406.10290.
-- [24] Song et al. (2025). *A Systematic Evaluation of On-Device LLMs: Quantization, Performance, and Resources*. arXiv:2505.15030.
-- [25] Tummalapalli et al. (2026). *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*. arXiv:2603.23640.
-- [26] Xue et al. (2024). *PowerInfer-2: Fast Large Language Model Inference on a Smartphone*. arXiv:2406.06282.
-- [27] Yadav, M. & Bhargavi, P. (2024). *Optimizing LLMs Using Quantization For Mobile Execution*. ICT4SD 2025, Springer LNNS. arXiv:2512.06490.
+**[1]** T. Brown, B. Mann, N. Ryder, et al., *Language Models are Few-Shot Learners*, NeurIPS 33, 2020. arXiv:2005.14165.
+
+**[2]** GSMA Intelligence, *The Mobile Economy 2024*, GSMA, London, 2024.
+
+**[3]** T. Dettmers, M. Lewis, Y. Belkada, L. Zettlemoyer, *LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale*, NeurIPS 2022. arXiv:2208.07339.
+
+**[4]** E. Frantar, S. Ashkboos, T. Hoefler, D. Alistarh, *GPTQ: Accurate Post-Training Quantization for GPTs*, 2022. arXiv:2210.17323.
+
+**[5]** llama.cpp Contributors, *GGUF Format Specification*, GitHub, ggml-org/ggml, 2023.
+
+**[6]** T. Dettmers, A. Pagnoni, A. Holtzman, L. Zettlemoyer, *QLoRA: Efficient Finetuning of Quantized LLMs*, NeurIPS 2023. arXiv:2305.14314.
+
+**[7]** G. Hinton, O. Vinyals, J. Dean, *Distilling the Knowledge in a Neural Network*, NIPS Workshop, 2015. arXiv:1503.02531.
+
+**[8]** G. Gerganov, *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*, GitHub, 2023.
+
+**[9]** Google DeepMind, *Gemini: A Family of Highly Capable Multimodal Models*, 2023. arXiv:2312.11805.
+
+**[10]** Google DeepMind, *Gemma: Open Models Based on Gemini Research and Technology*, 2024. arXiv:2403.08295.
+
+**[11]** Google DeepMind, *Gemini 2.0 Flash and Flash-Lite: Fast, Efficient Models for Developers*, 2025. ai.google.dev/gemini-api/docs/models.
+
+**[12]** Google, *ML Kit GenAI APIs*, 2024. developers.google.com/ml-kit/genai.
+
+**[13]** Google, *Android AICore*, 2024. developer.android.com/ml/aicore.
+
+**[14]** Google MediaPipe, *LLM Inference Guide for Android, MediaPipe Solutions*, 2024. ai.google.dev/edge/mediapipe.
+
+**[15]** MLC AI Contributors, *MLC-LLM: Bring Large Language Models Everywhere*, GitHub, mlc-ai/mlc-llm, 2023.
+
+**[16]** Meta AI, *The Llama 3 Herd of Models*, 2024. arXiv:2407.21783.
+
+**[17]** Z. Liu, C. Zhao, F. Iandola, et al., *MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases*, ICML 2024. arXiv:2402.14905.
+
+**[18]** M. Abdin, et al., *Phi-3 Technical Report: A Highly Capable Language Model Locally on Your Phone*, Microsoft Research, 2024. arXiv:2404.14219.
+
+**[19]** Apple ML Research, *Apple Intelligence Foundation Language Models*, 2024. arXiv:2507.13575.
+
+**[20]** Z. Xue, Y. Wei, R. Chen, et al., *PowerInfer-2: Fast Large Language Model Inference on a Smartphone*, MobiCom 2024. arXiv:2406.06282.
+
+**[21]** Qualcomm Technologies Inc., *Snapdragon 8 Gen 3 Mobile Platform*, Technical Overview, 2024.
+
+**[22]** D. Xu, et al., *Understanding LLMs Running on Consumer Devices (Understanding LLMs in Your Pockets)*, 2024. arXiv:2410.03613.
+
+**[23]** H. Fassold, *Porting LLMs to Mobile Devices for Question Answering*, IEEE/CVF CVPR Workshops, 2024.
+
+**[25]** W. Yin, M. Xu, Y. Li, *LLM as a System Service on Mobile Devices*, 2024. arXiv:2403.11805.
+
+**[26]** Q. Ye, Z. Li, W. Feng, M. Guizani, H. Yu, *Prima.cpp: Speeding Up 70B-Scale LLM Inference on Low-Resource Everyday Home Clusters*, 2025. arXiv:2504.08791.
+
+**[27]** Li et al., *PalmBench: A Comprehensive Benchmark of Compressed Large Language Models on Mobile Platforms*, 2024. arXiv:2410.05315.
+
+**[28]** Murthy et al., *MobileAIBench: Benchmarking LLMs and LMMs for On-Device Use Cases*, NeurIPS 2024. arXiv:2406.10290.
+
+**[29]** Song et al., *A Systematic Evaluation of On-Device LLMs: Quantization, Performance, and Resources*, 2025. arXiv:2505.15030.
+
+**[30]** Tummalapalli et al., *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*, 2026. arXiv:2603.23640.
+
+**[31]** M. Yadav, P. Bhargavi, *Optimizing LLMs Using Quantization For Mobile Execution*, ICT4SD 2025, Springer LNNS. arXiv:2512.06490.
+

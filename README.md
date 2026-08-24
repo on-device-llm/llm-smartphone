@@ -1,6 +1,6 @@
 # PFE — LLMs Embarqués sur Smartphone
 
-> Mémoire de Master Informatique — Intelligence Artificielle  
+> Mémoire de Master Informatique — Intelligence Artificielle
 > Solutions Google (Gemini Nano, ML Kit GenAI) et alternatives open source (llama.cpp, MLC-LLM, Gemma)
 
 ---
@@ -8,16 +8,15 @@
 ## Structure du dépôt
 
 ```
-pfe-llm-smartphone/
+llm-smartphone/
 ├── docs/
-│   ├── 01_etat_art.md                       # État de l'art complet (voir aussi le PDF)
-│   ├── 02_tutoriel_llamacpp.md              # Tutoriel llama.cpp Android/Termux + PC
-│   ├── 03_tutoriel_mlkit.md                 # Tutoriel ML Kit GenAI (Android Studio)
-│   ├── 04_analyse_performances.md           # Analyse des performances mesurées
-│   ├── 05_retour_critique.md                # Retour critique et recommandations
-│   └── chapitre_1_etat_art.md … chapitre_4_retour_critique.md   # Chapitres du mémoire (md + html)
+│   ├── chapitre_1_etat_art.md          # Chapitre 1 — État de l'art
+│   ├── chapitre_2_mise_en_oeuvre.md    # Chapitre 2 — Mise en œuvre : déploiement et analyse des performances
+│   ├── chapitre_3_prototype.md         # Chapitre 3 — Prototype minimal de chatbot embarqué
+│   ├── annexe_chapitre2.md             # Annexes du chapitre 2 (configuration Android, etc.)
+│   └── annexe_chapitre3.md             # Annexes du chapitre 3 (code source complet du prototype CLI)
 ├── prototype-cli/
-│   ├── chatbot.py                   # Chatbot CLI interactif (llama-cpp-python)
+│   ├── chatbot.py                   # Chatbot CLI interactif (pilotage de llama-cli en sous-processus)
 │   ├── benchmark.py                 # Script de mesure latence/mémoire
 │   ├── utils.py                     # Fonctions utilitaires
 │   └── requirements.txt             # Dépendances Python
@@ -31,8 +30,10 @@ pfe-llm-smartphone/
 │   ├── benchmark_complet.sh         # Benchmark complet (latence, RAM, batterie, throttling)
 │   └── throttling_rigoureux.sh      # Protocole thermique rigoureux (warm-up + charge 5 min)
 └── .github/workflows/
-    └── build-apk.yml                # CI : build automatique de l'APK sur push
+    └── build-apk.yml                # Build manuel de l'APK (déclenchement via workflow_dispatch)
 ```
+
+> Le chapitre 4 (retour critique) et le reste des livrables (page de garde, résumé, bibliographie, etc.) seront ajoutés au dépôt dans une prochaine mise à jour.
 
 ---
 
@@ -77,7 +78,7 @@ bash scripts/setup_test_termux.sh <nom_appareil>
 bash scripts/setup_test_termux.sh <nom_appareil> --with-benchmark
 ```
 
-Voir `docs/02_tutoriel_llamacpp.md` pour le tutoriel complet pas-à-pas, et `scripts/throttling_rigoureux.sh` pour le protocole de mesure thermique détaillé.
+Voir `docs/chapitre_2_mise_en_oeuvre.md` pour le tutoriel complet pas-à-pas, et `scripts/throttling_rigoureux.sh` pour le protocole de mesure thermique détaillé.
 
 ---
 
@@ -92,9 +93,8 @@ Voir `docs/02_tutoriel_llamacpp.md` pour le tutoriel complet pas-à-pas, et `scr
 
 ## Livrables du PFE
 
-- [`etat_art_llm_smartphone_v2.pdf`](./etat_art_llm_smartphone_v2.pdf) — État de l'art complet (LaTeX)
-- [`timeline_llm_smartphone.pdf`](./timeline_llm_smartphone.pdf) — Chronologie illustrée imprimable
-- `docs/chapitre_1_etat_art.md` → `docs/chapitre_4_retour_critique.md` — Les 4 chapitres du mémoire (rapport complet, pas encore assemblé en un PDF unique)
+- `docs/chapitre_1_etat_art.md`, `docs/chapitre_2_mise_en_oeuvre.md`, `docs/chapitre_3_prototype.md` — chapitres 1 à 3 du mémoire (version du 23/08)
+- `docs/annexe_chapitre2.md`, `docs/annexe_chapitre3.md` — annexes correspondantes (code source complet, configuration)
 - Ce dépôt Git — code + tutoriels reproductibles
 
 ---

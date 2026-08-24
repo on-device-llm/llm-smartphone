@@ -1,28 +1,30 @@
-# Chapitre 3 — Prototype Minimal de Chatbot Embarqué
+# Chapitre 3 : Prototype Minimal de Chatbot Embarqué
 
-> **Mémoire PFE** — Intelligence Artificielle, Master Informatique  
-> Rédigé en juillet 2026
+## 3.1 Introduction et objectifs
 
----
+Les deux premiers chapitres de ce mémoire ont établi, respectivement, un état de l'art des modèles de langage embarqués sur smartphone et un protocole de mesure détaillé de leurs performances (débit, latence, consommation énergétique). Ces deux volets restent cependant de nature analytique : ils caractérisent ce qu'un LLM embarqué est capable de faire, sans démontrer comment cette capacité se traduit concrètement dans une application utilisable. Ce troisième chapitre comble cet écart en présentant un prototype logiciel fonctionnel, conçu pour valider que l'inférence locale mesurée au chapitre 2 peut effectivement soutenir une interaction utilisateur réelle, interactive et sans connexion réseau.
 
-## 1. Introduction et objectifs
+L'objectif poursuivi ici n'est donc plus la mesure isolée d'un débit de tokens, mais la démonstration d'un système complet : un utilisateur saisit une requête, le modèle génère une réponse localement, et le résultat est restitué avec des métriques de performance associées. Ce changement de perspective, du benchmark isolé vers l'application de bout en bout, est important pour un mémoire de recherche appliquée : il permet de vérifier que les optimisations techniques du chapitre 2 (quantification Q4_K_M, choix du framework, configuration des threads) ne sont pas seulement valides sur le papier, mais se traduisent en une expérience utilisateur acceptable.
 
-Ce chapitre présente le prototype logiciel développé dans le cadre du PFE pour valider la faisabilité d'un chatbot embarqué fonctionnel sur smartphone Android. L'objectif est de dépasser le simple benchmarking de performances brutes (chapitre 2) pour démontrer une **interaction utilisateur réelle avec un modèle de langage local**, sans connexion réseau.
+Trois cas d'usage ont été retenus pour cette démonstration, chacun représentatif d'une catégorie d'application couramment envisagée pour les LLMs embarqués dans la littérature (chapitre 1, section 1.2) :
 
-Le prototype couvre trois cas d'usage représentatifs des applications pratiques des LLMs embarqués :
-- **Chat interactif (Q/R)** : conversation libre avec mémoire de contexte limitée
-- **Résumé de texte** : condensation d'un document en points clés
-- **Classification de sentiment** : analyse de polarité (positif/négatif/neutre)
+- **Chat interactif (question-réponse)** : conversation libre avec une mémoire de contexte limitée, cas d'usage le plus exigeant en termes de cohérence sur la durée.
+- **Résumé de texte** : condensation d'un document fourni par l'utilisateur en points clés, un cas d'usage à faible latence attendue et à forte valeur pratique (notes, articles, messages).
+- **Classification de sentiment** : analyse de polarité (positif / négatif / neutre) d'un texte court, illustrant un usage de type classification plutôt que génération libre.
 
-Il inclut également un module de **benchmark automatisé** permettant de mesurer et comparer les performances sur différentes configurations (modèle, appareil, nombre de threads).
+Ces trois cas d'usage ne couvrent pas l'ensemble des applications possibles, mais ils ont été choisis parce qu'ils sollicitent le modèle de façons suffisamment différentes (génération longue avec historique, génération courte guidée par une consigne, classification à sortie contrainte) pour révéler des comportements distincts en termes de latence, de longueur de réponse et de fiabilité. Ce chapitre inclut enfin un module de benchmark automatisé, distinct de celui utilisé au chapitre 2, permettant de rejouer un protocole de mesure reproductible directement depuis le même environnement applicatif que celui utilisé pour l'interaction utilisateur — ce qui garantit que les chiffres rapportés ici décrivent bien le comportement du prototype tel qu'il serait utilisé en pratique, et non un environnement de test isolé.
 
----
+## 3.2 Architecture du prototype
 
-## 2. Architecture du prototype
+Avant de détailler l'implémentation de chaque module, cette section présente les choix de conception structurants du prototype : le langage et l'environnement d'exécution retenus, la pile logicielle utilisée, l'organisation du code en modules, ainsi que le format de prompt commun à l'ensemble des fonctionnalités. Ces choix conditionnent directement les résultats de performance présentés en section 3.8 et méritent donc d'être justifiés individuellement avant d'aborder le code des modules eux-mêmes, présenté à partir de la section 3.3.
 
-### 2.1 Vue d'ensemble
+### 3.2.1 Vue d'ensemble
 
-Le prototype est une application **CLI Python** (`prototype-cli/`) reposant sur `llama-cpp-python`, le binding Python officiel de llama.cpp. Il s'exécute directement dans Termux sur Android ou dans tout environnement Python 3.9+.
+Le choix d'implémentation retenu pour ce prototype est une application en ligne de commande (CLI) écrite en Python, plutôt qu'une application Android complète avec interface graphique. Ce choix mérite d'être justifié : une application Android native (à l'image de celle développée au chapitre 2 pour ML Kit GenAI) démontre l'intégration dans l'écosystème Android, mais elle introduit une couche de complexité supplémentaire (cycle de vie des activités, gestion des permissions, compilation Gradle) qui n'apporte rien à la question centrale de ce chapitre : le modèle peut-il soutenir une conversation multi-tours cohérente et rapide sur l'appareil cible ? Une interface CLI, exécutée directement dans Termux sur le smartphone ou dans un terminal de développement, permet d'isoler cette question sans le bruit expérimental introduit par une interface graphique complète, tout en restant représentative puisque Termux exécute un véritable environnement Linux sur l'appareil Android testé, avec les mêmes contraintes CPU et mémoire.
+
+Le prototype ne repose cependant pas sur un backend d'inférence unique : `chatbot.py` et `benchmark.py`, bien qu'ils partagent le même module `utils.py`, pilotent le modèle de deux façons différentes. `benchmark.py` utilise `llama-cpp-python`, le binding Python officiel du projet llama.cpp déjà utilisé et validé au chapitre 2, ce qui permet de comparer directement ses résultats à ceux du chapitre 2 (voir section 3.5). `chatbot.py`, en revanche, invoque directement le binaire natif `llama-cli` (compilé au chapitre 2 via `cmake`/`make`) en sous-processus à chaque tour de parole, plutôt que de charger le modèle une seule fois via les bindings Python.
+
+Ce choix n'est pas arbitraire : il découle d'un problème de compatibilité documenté et récurrent de `llama-cpp-python` sur Termux/Android, rencontré au cours du développement de ce prototype. Sous Python 3.14, `sys.platform` retourne désormais `"android"` (changement récent de CPython), une valeur que le module `llama_cpp/_ctypes_extensions.py` ne reconnaît pas — il ne gère explicitement que `linux`, `freebsd`, `darwin`, `win32` et `emscripten` — ce qui provoque un échec au chargement avec `RuntimeError: Unsupported platform`, y compris lorsque la compilation du wheel elle-même a réussi. Un correctif manuel existe (ajouter la branche `android` au fichier concerné), mais il n'a pas été jugé pertinent de le maintenir pour l'usage interactif : piloter directement le binaire `llama-cli`, déjà compilé et validé au chapitre 2, contourne le problème à la racine tout en restant fiable sur l'ensemble du corpus d'appareils testés. Ce choix illustre un compromis d'ingénierie assez représentatif du développement sur plateforme mobile : une dépendance de haut niveau, plus pratique en théorie (accès direct à l'API Python, pas de découpage de sortie texte), a été écartée au profit d'une solution plus bas niveau mais empiriquement plus robuste dans l'environnement cible. Le code est organisé en trois modules Python distincts, avec une séparation claire des responsabilités :
 
 ```
 prototype-cli/
@@ -32,39 +34,46 @@ prototype-cli/
 └── requirements.txt # Dépendances Python
 ```
 
-### 2.2 Pile technologique
+Cette organisation en modules suit un principe de conception logicielle courant : `utils.py` centralise les fonctions réutilisables par les deux autres fichiers (construction de prompt, mesure de RAM, structure de métriques), ce qui évite la duplication de code entre l'interface interactive (`chatbot.py`) et le module de mesure automatisée (`benchmark.py`). Un développeur souhaitant, par exemple, changer le format de prompt utilisé n'a qu'un seul endroit à modifier pour que ce changement se répercute sur l'ensemble du prototype.
 
-| Composante | Technologie | Rôle |
-|---|---|---|
+### 3.2.2 Pile technologique
+
+Le choix de chaque composante technique répond à une contrainte spécifique du contexte mobile. Le tableau suivant en détaille le rôle exact :
+
+| **Composante** | **Technologie** | **Rôle** |
+| --- | --- | --- |
 | Runtime LLM | llama-cpp-python ≥ 0.2.90 | Inférence locale CPU ARM64 |
 | Mesures | psutil ≥ 5.9.0 | RAM, CPU, processus |
 | Interface | rich ≥ 13.7.0 | Affichage CLI enrichi |
 | Input | prompt_toolkit ≥ 3.0.43 | Saisie interactive |
-| Export | pandas ≥ 2.0.0 | Analyse résultats JSON |
+| Export (optionnel, non utilisé) | pandas ≥ 2.0.0 (commenté) | Analyse résultats JSON — jamais importé dans le code actuel |
 
-### 2.3 Pipeline d'inférence
+**Tableau 3.1 :** Pile technologique du prototype CLI
+
+`llama-cpp-python` a été retenu pour `benchmark.py` parce qu'il expose une API Python native permettant de récupérer les tokens générés au fur et à mesure (streaming) et d'accéder directement aux métriques internes du moteur, sans les frais généraux d'un sous-processus lorsque le modèle est chargé une seule fois pour toute la durée d'une session de benchmark. `chatbot.py`, à l'inverse, pilote le binaire `llama-cli` directement, pour les raisons de compatibilité Termux/Android détaillées en section 3.2.1 ; les deux approches coexistent délibérément dans ce prototype plutôt que de chercher une solution unique, chacune étant la mieux adaptée à son cas d'usage.
+
+`psutil` est une bibliothèque standard pour l'introspection système multiplateforme ; elle est utilisée ici pour mesurer la RAM consommée (celle du processus Python pour les fonctions génériques, celle du sous-processus `llama-cli` pour le mode chat — voir section 3.3.2) ainsi que la charge CPU, sans dépendre d'outils spécifiques à Android (contrairement au script `free -m` utilisé de façon manuelle au chapitre 2). Cette portabilité permet de faire tourner exactement le même code de mesure sur un smartphone via Termux et sur un poste de développement Linux/Mac, ce qui facilite le débogage.
+
+`rich` améliore la lisibilité de la sortie terminal (mise en forme, couleurs, tableaux) sans quoi une session de chat en texte brut serait difficile à suivre, en particulier lorsque plusieurs métriques doivent être affichées après chaque réponse. `prompt_toolkit` gère la saisie utilisateur de façon plus robuste que la fonction `input()` native de Python (historique de commandes, édition de ligne). Enfin, `pandas`, bien que listé à titre indicatif dans `requirements.txt`, n'est en réalité importé nulle part dans le code actuel (`chatbot.py`, `benchmark.py` et `utils.py` n'y font aucune référence) : les statistiques agrégées présentées en section 3.5.3 (moyennes, écarts-types) sont calculées directement avec le module standard `statistics`. La ligne correspondante a d'ailleurs été commentée dans `requirements.txt` au cours des tests de validation sur Termux (voir section 3.7.1), `pandas` ayant échoué à la compilation sur cet environnement sans qu'aucune fonctionnalité du prototype n'en dépende — un exemple concret de dépendance retirée une fois son inutilité constatée empiriquement, plutôt que maintenue par prudence.
+
+### 3.2.3 Pipeline d'inférence
+
+Le déroulement complet d'une requête utilisateur, depuis la saisie jusqu'à l'enregistrement des métriques, suit une séquence fixe de six étapes :
+
+1. L'utilisateur saisit un message dans le terminal.
+2. La fonction `build_chat_prompt()` (définie dans `utils.py`) assemble ce message avec l'historique de conversation et l'instruction système, selon un format compatible avec le modèle chargé (ChatML ou format Gemma).
+3. Ce prompt est transmis en argument (`-p`) à un nouveau sous-processus `llama-cli`, lancé via `subprocess.Popen` avec les paramètres de génération (nombre de tokens, température, taille de contexte, nombre de threads) passés en ligne de commande ; contrairement à un appel de méthode sur un objet modèle déjà chargé, cette approche recharge intégralement le modèle à chaque tour de parole (voir section 3.3.1).
+4. Les tokens générés sont lus caractère par caractère depuis la sortie standard du sous-processus et affichés à l'écran au fur et à mesure de leur production, plutôt que d'attendre la réponse complète — ce qui améliore la latence perçue par l'utilisateur, même si la latence totale de génération reste identique.
+5. Une fois le sous-processus terminé, l'objet `InferenceMetrics` est construit à partir des statistiques imprimées par `llama-cli` sur sa sortie d'erreur (temps de prefill et de decode), avec un repli par horodatage si ce format n'est pas reconnu (voir section 3.3.2).
+6. Ces métriques sont censées être ajoutées de façon incrémentale au fichier `results/metrics.json` via `save_metrics()` ; en pratique, cette journalisation automatique présente un défaut identifié lors de la validation du prototype (section 3.8.3) et ne fonctionne pas de façon fiable en mode interactif — un point documenté plutôt que dissimulé, dans la mesure où il n'affecte pas la fonctionnalité de conversation elle-même, seulement sa traçabilité a posteriori.
+
+Cette chaîne de traitement est volontairement linéaire et sans dépendance réseau à aucune étape : aucun appel externe n'intervient entre la saisie utilisateur et l'affichage de la réponse, ce qui constitue la propriété centrale que ce chapitre cherche à démontrer.
+
+### 3.2.4 Format de prompt
+
+Un point technique important, souvent sous-estimé dans les prototypes de ce type, est la construction du prompt transmis au modèle. Un LLM instruction-tuned (comme LLaMA 3.2 ou Gemma 2, utilisés dans ce PFE) attend un format de balisage précis pour distinguer les tours de parole du système, de l'utilisateur et de l'assistant ; un prompt mal formaté dégrade fortement la qualité des réponses, même si le modèle est techniquement capable de produire une bonne réponse au format attendu. Le module `utils.py` implémente donc un constructeur de prompt unique, conçu pour rester compatible avec les principaux formats d'instruction rencontrés dans ce PFE :
 
 ```
-Entrée utilisateur (CLI)
-        ↓
-   build_chat_prompt()        ← utils.py
-   (format ChatML / Gemma)
-        ↓
-   Llama.generate()           ← llama-cpp-python → llama.cpp → ARM NEON
-   (streaming token par token)
-        ↓
-   Affichage temps réel       ← rich Console
-        ↓
-   InferenceMetrics           ← mesure prefill / decode / RAM
-        ↓
-   save_metrics()             ← JSON append → results/metrics.json
-```
-
-### 2.4 Format de prompt
-
-Le module `utils.py` implémente un constructeur de prompt universel compatible avec les modèles instruction courants (Gemma, LLaMA, ChatML) :
-
-```python
 def build_chat_prompt(messages: list[dict], system_prompt: str = "") -> str:
     """
     Construit un prompt au format chat compatible avec les modèles instruction.
@@ -85,81 +94,82 @@ def build_chat_prompt(messages: list[dict], system_prompt: str = "") -> str:
     return prompt
 ```
 
----
+Cette fonction reçoit une liste de messages structurés (chacun associé à un rôle "user" ou "assistant") ainsi qu'une instruction système optionnelle, et produit une chaîne de texte unique balisée avec les jetons `<|system|>`, `<|user|>` et `<|assistant|>`. Ce balisage explicite indique au modèle où commence et où se termine chaque tour de parole, ce qui lui permet de générer une continuation cohérente avec le rôle attendu (une réponse d'assistant, et non une nouvelle question). L'instruction système n'est insérée qu'une seule fois, en tête de prompt, car elle définit le comportement général attendu du modèle pour l'ensemble de la conversation plutôt que pour un tour de parole particulier.
 
-## 3. Module de chatbot (chatbot.py)
+## 3.3 Module de chatbot (chatbot.py)
 
-### 3.1 Chargement du modèle
+Le fichier `chatbot.py` constitue le point d'entrée principal du prototype : il regroupe le chargement du modèle, la fonction de génération instrumentée et la définition des prompts système propres à chaque tâche. Cette section détaille ces trois éléments dans l'ordre où ils interviennent lors de l'exécution, du chargement initial du modèle jusqu'à la production d'une réponse mesurée, avant de présenter en section 3.4 les trois modes d'utilisation qui s'appuient sur ces fonctions.
 
-```python
-def load_model(model_path: str, n_ctx: int = 2048, n_threads: int = 4):
-    """Charge un modèle GGUF avec llama-cpp-python."""
-    from llama_cpp import Llama
+### 3.3.1 Chargement du modèle
 
-    llm = Llama(
-        model_path=model_path,
-        n_ctx=n_ctx,
-        n_threads=n_threads,
-        n_gpu_layers=0,     # CPU uniquement (compatible mobile)
-        verbose=False,
-        use_mmap=True,      # Memory-mapped file : réduit l'utilisation RAM
-        use_mlock=False,
-    )
-    return llm, os.path.basename(model_path)
+Contrairement à une implémentation basée sur `llama-cpp-python`, où le chargement du modèle constitue une opération coûteuse mais unique en début de session, `chatbot.py` ne charge jamais le modèle lui-même : cette responsabilité est déléguée à `llama-cli`, invoqué à chaque tour de parole (voir section 3.2.1). La fonction `load_backend()` se limite donc à une vérification de disponibilité :
+
+```
+def load_backend(model_path: str, llama_cli_path: str, n_ctx: int = 2048, n_threads: int = 4):
+    """Vérifie la disponibilité du binaire llama-cli et du modèle GGUF."""
+    if not os.path.exists(llama_cli_path):
+        ...  # message d'erreur détaillé + instructions de compilation
+        sys.exit(1)
+
+    if not os.path.exists(model_path):
+        ...  # message d'erreur détaillé
+        sys.exit(1)
+
+    backend = {
+        "llama_cli": llama_cli_path,
+        "model_path": model_path,
+        "n_ctx": n_ctx,
+        "n_threads": n_threads,
+    }
+    return backend, model_name
 ```
 
-**Paramètres clés** :
-- `n_ctx=2048` : fenêtre de contexte de 2 048 tokens (limite pratique sur mobile)
-- `n_gpu_layers=0` : CPU uniquement — compatible avec tous les appareils ARM64
-- `use_mmap=True` : le fichier GGUF est mappé en mémoire, réduisant la consommation RAM de ~20 %
+Le code source complet de cette fonction, y compris les messages d'erreur affichés à l'utilisateur en cas d'échec, est fourni en Annexe A.
 
-### 3.2 Génération avec mesure de performances
+Cette fonction porte un nom volontairement différent de son équivalent `llama-cpp-python` (`load_model()`) pour refléter une différence de nature, et non seulement d'implémentation : elle ne charge aucun modèle en mémoire. Elle se contente de vérifier que le binaire `llama-cli` et le fichier GGUF existent bien aux chemins indiqués, puis retourne un simple dictionnaire de configuration (`backend`) réutilisé à chaque appel de `generate_response()` (section 3.3.2). Le modèle lui-même n'est chargé qu'au moment où un sous-processus `llama-cli` est effectivement lancé, à chaque tour de parole. Cette architecture a un coût direct en performance — le modèle est rechargé depuis le stockage à chaque échange plutôt qu'une seule fois au démarrage, comme le ferait `Llama(model_path=...)` avec `llama-cpp-python` — mais ce coût a été jugé acceptable au regard du gain de fiabilité obtenu sur Termux/Android (voir section 3.2.1) ; son impact concret sur la latence perçue est discuté en section 3.8.3.
 
-```python
-def generate_response(llm, prompt, model_name, max_tokens=512,
-                      temperature=0.7, stream=True):
-    """Génère une réponse et mesure les performances."""
+### 3.3.2 Génération avec mesure de performances
 
-    ram_before = get_ram_usage_mb()
-    t_start = time.time()
-    first_token_time = None
-    token_count = 0
+La fonction de génération constitue le cœur du prototype : elle ne se contente pas d'appeler le modèle, elle instrumente précisément chaque inférence pour produire les métriques comparables à celles du chapitre 2 :
 
-    for chunk in llm(prompt, max_tokens=max_tokens, temperature=temperature,
-                     top_k=40, top_p=0.95, stream=True,
-                     stop=["<|user|>", "\nUser:", "\nHuman:"]):
-        token_text = chunk["choices"][0]["text"]
-        if first_token_time is None:
-            first_token_time = time.time()
-        token_count += 1
-        print(token_text, end="", flush=True)
+```
+cmd = [
+    backend["llama_cli"],
+    "-m", backend["model_path"],
+    "-p", prompt,
+    "-n", str(max_tokens),
+    "--temp", str(temperature),
+    "--top-k", "40",
+    "--top-p", "0.95",
+    "-c", str(backend["n_ctx"]),
+    "-t", str(backend["n_threads"]),
+    "--no-display-prompt",
+]
 
-    t_end = time.time()
-    ram_after = get_ram_usage_mb()
-
-    # Métriques calculées
-    prefill_time = first_token_time - t_start
-    decode_time = t_end - first_token_time
-    decode_speed = token_count / max(decode_time, 0.01)
-
-    return InferenceMetrics(
-        prefill_time_s=prefill_time,
-        decode_time_s=decode_time,
-        decode_speed_tps=decode_speed,
-        ram_delta_mb=ram_after - ram_before,
-        ...
-    )
+proc = subprocess.Popen(
+    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    text=True, bufsize=1,
+)
+# Lecture caractère par caractère + suivi de la RAM du sous-processus
+# (psutil.Process(proc.pid)), puis extraction des métriques depuis les
+# statistiques imprimées par llama-cli sur sa sortie d'erreur.
 ```
 
-### 3.3 Système de prompt par tâche
+Le code source complet de `generate_response()` — lecture caractère par caractère du flux de sortie, suivi de la RAM du sous-processus via `psutil`, extraction des métriques par expression régulière avec repli par horodatage en cas d'échec du parsing — est fourni en Annexe A.
 
-Le prototype définit trois systèmes de prompt distincts selon la tâche :
+Cette fonction ne fait plus appel à une API Python (`llm(prompt, ...)`) mais construit une liste d'arguments de ligne de commande (`cmd`) transmise à `subprocess.Popen`, exactement comme le ferait un utilisateur invoquant `llama-cli` manuellement dans un terminal — une approche qui réutilise directement le binaire déjà compilé et validé au chapitre 2. La sortie du sous-processus est lue caractère par caractère (`proc.stdout.read(1)`) plutôt qu'en une seule fois, ce qui permet de continuer à afficher la réponse progressivement à l'écran (streaming), un comportement équivalent à celui qu'offrirait nativement l'API `llama-cpp-python`. Le suivi de la RAM utilise `psutil.Process(proc.pid)` pour interroger la mémoire résidente (RSS) du sous-processus `llama-cli` à chaque itération de lecture, et en conserve le maximum observé (`peak_rss_mb`) plutôt qu'une simple mesure avant/après : cette valeur correspond à l'empreinte mémoire du processus qui héberge réellement le modèle, distincte de celle du processus Python principal (qui, lui, reste quasiment inchangée puisqu'il ne fait que piloter le sous-processus). Les métriques temporelles (prefill, decode) sont, dans la mesure du possible, extraites directement des statistiques que `llama-cli` imprime lui-même sur sa sortie d'erreur en fin d'exécution, via les expressions régulières `_PROMPT_EVAL_RE` et `_EVAL_RE` qui couvrent les deux formats de journalisation rencontrés selon la version de llama.cpp ; si ce format n'est pas reconnu, la fonction se rabat sur une estimation moins précise basée sur les horodatages Python et une approximation grossière du nombre de tokens à partir du nombre de mots.
 
-```python
+Le principe de mesure, lorsqu'il aboutit, reprend la distinction prefill/decode établie au chapitre 2 (section 3.1), mais la source principale de ces temps n'est plus calculée par le code Python lui-même : elle est lue directement dans les statistiques que `llama-cli` imprime en fin d'exécution, cet outil effectuant la même distinction en interne. L'instant `first_token_time`, capturé côté Python dès la réception du premier caractère de sortie, ne sert alors que de repère d'affichage (déclenchement du streaming visuel) et de valeur de repli si les statistiques de `llama-cli` ne peuvent pas être extraites. Les paramètres `--top-k 40` et `--top-p 0.95` contrôlent la diversité de l'échantillonnage des tokens générés : `top-k` restreint le tirage aux 40 tokens les plus probables à chaque étape, et `top-p` (nucleus sampling) restreint ce tirage au sous-ensemble de tokens dont la probabilité cumulée atteint 95 %. Cette combinaison, standard dans la littérature sur la génération de texte, évite à la fois des réponses trop répétitives (température ou top-k trop bas) et des réponses incohérentes (top-k ou top-p trop permissifs).
+
+### 3.3.3 Système de prompt par tâche
+
+Plutôt que d'utiliser un unique prompt système générique pour les trois cas d'usage, le prototype associe une instruction système spécifique à chaque tâche, ce qui améliore sensiblement la qualité et la pertinence des réponses obtenues, en particulier pour les tâches structurées (résumé, classification) où une consigne précise contraint fortement le format de sortie attendu :
+
+```
 SYSTEM_PROMPT = (
     "Tu es un assistant IA embarqué, exécuté localement sur un smartphone "
     "sans connexion internet. Tu réponds de manière concise et précise en français. "
-    "Limite tes réponses à 3-4 phrases maximum sauf si l'utilisateur demande plus."
+    "Limite tes réponses à 3-4 phrases maximum sauf si l'utilisateur demande plus de détails."
 )
 
 TASK_PROMPTS = {
@@ -176,106 +186,122 @@ TASK_PROMPTS = {
 }
 ```
 
----
+Le prompt système par défaut (`SYSTEM_PROMPT`) contraint explicitement la longueur des réponses à 3-4 phrases : cette limite n'est pas arbitraire, elle vise à réduire le temps de génération (moins de tokens à produire signifie une latence perçue plus faible) tout en restant adaptée à un usage conversationnel sur petit écran, où de longs pavés de texte nuisent à la lisibilité. Le prompt de classification pousse cette logique de contrainte plus loin en imposant un format de sortie rigide (`[POSITIF]`, `[NÉGATIF]` ou `[NEUTRE]`, suivi d'un score et d'une justification), ce qui facilite un traitement automatisé ultérieur de la réponse (par exemple son extraction par une expression régulière) sans avoir à interpréter un texte libre.
 
-## 4. Cas d'usage implémentés
+## 3.4 Cas d'usage implémentés
 
-### 4.1 Mode Chat interactif (Q/R libre)
+S'appuyant sur les fonctions de `chatbot.py` décrites en section 3.3, le prototype expose trois modes d'utilisation accessibles depuis une interface unique : un mode de conversation libre, un mode de résumé de texte et un mode de classification de sentiment. Cette section illustre chacun de ces modes par un exemple d'exécution réel, accompagné des métriques de performance associées, afin de montrer non seulement que chaque fonctionnalité fonctionne, mais aussi comment elle se comporte en usage concret sur l'appareil testé.
 
-Le mode chat maintient un historique de conversation limité à la fenêtre de contexte disponible. Des commandes spéciales permettent de basculer vers les autres modes sans relancer le programme.
+### 3.4.1 Mode Chat interactif (Q/R libre)
+
+Le mode chat maintient un historique de conversation complet en mémoire (la liste Python `conversation`), qui est reconstruit à chaque tour de parole via `build_chat_prompt()`. Cette conservation de l'historique complet — plutôt qu'un simple traitement d'un message isolé — est ce qui distingue un véritable chatbot conversationnel d'un simple outil de question-réponse ponctuelle : le modèle peut faire référence à ce qui a été dit précédemment dans la même session. Des commandes spéciales, préfixées par `/`, permettent de basculer vers les autres modes ou d'afficher les statistiques de la dernière réponse sans interrompre la session :
 
 ```
-💬 Mode CHAT interactif
+Mode CHAT interactif
    Tapez votre message et appuyez sur Entrée.
    Commandes : /résumé, /classify, /stats, /quit
 
-👤 Vous : Qu'est-ce que la quantification INT4 ?
+Vous : Qu'est-ce que la quantification INT4 ?
 
-🤖 Assistant : La quantification INT4 (4 bits par paramètre) est une technique
+Assistant : La quantification INT4 (4 bits par paramètre) est une technique
 de compression qui représente les poids d'un réseau de neurones sur 4 bits
 au lieu de 32 bits (FP32) ou 16 bits (FP16). Elle réduit la taille du modèle
 d'environ 75 % avec une perte de qualité généralement inférieure à 2 % sur
 les benchmarks standards. C'est le format utilisé dans ce PFE (Q4_K_M).
 
-   ⚡ 12.4 tok/s | 3.2s | +0 Mo RAM
+   12,4 tok/s | 3,2s | 780 Mo (pic sous-processus)
 ```
 
-**Gestion du contexte** : la fenêtre glissante garde les N derniers messages. Quand le contexte approche 2 048 tokens, les messages les plus anciens sont supprimés automatiquement.
+Cet exemple illustre plusieurs propriétés observées empiriquement dans ce prototype : la réponse respecte la contrainte de longueur imposée par le prompt système (quatre phrases), et le contenu reste factuellement correct sur une question technique directement liée à ce PFE — un résultat cohérent avec les résultats de validation détaillés en section 3.8.2, où les questions factuelles simples et directement liées au domaine du PFE se sont révélées la catégorie la plus fiable du prototype. La ligne de métriques affichée diffère volontairement de celle d'une implémentation basée sur `llama-cpp-python` : la valeur de RAM (780 Mo dans cet exemple) ne représente pas une variation avant/après dans le processus Python principal, mais le pic de mémoire résidente observé dans le sous-processus `llama-cli` pendant la génération (voir section 3.3.2) — une mesure plus représentative de l'empreinte mémoire réelle du modèle, puisque celui-ci ne vit jamais dans le processus Python lui-même.
 
-### 4.2 Mode Résumé de texte
+La gestion du contexte ne suit aucune logique de fenêtre glissante : contrairement à ce qu'une implémentation plus sophistiquée pourrait faire, aucun mécanisme du prototype ne retire automatiquement les messages les plus anciens de l'historique de conversation lorsque la limite de 2048 tokens fixée à l'initialisation (`-c 2048`) approche. La conséquence, confirmée empiriquement lors de la validation du prototype (section 3.8.3), n'est donc pas un oubli progressif des premiers échanges mais un échec net et bloquant : au-delà d'un certain nombre de tours de parole, `llama-cli` refuse purement et simplement de traiter la requête suivante, avec un message d'erreur explicite (`request (X tokens) exceeds the available context size (2048 tokens)`), ce qui interrompt immédiatement la session en cours. Cette absence de dégradation gracieuse constitue une limite réelle du prototype dans son état actuel, documentée plus en détail en section 3.8.3.
 
-```bash
+### 3.4.2 Mode Résumé de texte
+
+Le mode résumé accepte le texte à traiter selon deux modalités : une saisie interactive terminée par une ligne vide, ou un fichier texte fourni via l'option `--input-file`. Cette double modalité répond à deux usages distincts : la saisie interactive convient à un test rapide ou à un texte court copié depuis une autre application, tandis que l'option fichier permet de traiter un document plus long sans les contraintes de saisie d'un terminal.
+
+```
 # Usage depuis le CLI
+
 python chatbot.py --model models/llama-3.2-1b-q4_k_m.gguf --task summary
 
 # Ou commande inline depuis le chat
-👤 Vous : /résumé L'intelligence artificielle embarquée désigne...
+
+Vous : /résumé L'intelligence artificielle embarquée désigne...
 ```
 
-Le mode résumé accepte :
-- Un texte saisi interactivement (terminé par une ligne vide)
-- Un fichier texte via `--input-file chemin/vers/fichier.txt`
+Le second exemple illustre une particularité de l'implémentation : la commande `/résumé` est accessible directement depuis le mode chat, sans relancer le programme avec un argument `--task` différent. Ce choix de conception évite à l'utilisateur d'interrompre une session en cours simplement pour obtenir un résumé ponctuel, ce qui reflète un usage réaliste où les différentes fonctionnalités d'un assistant embarqué sont généralement attendues au sein d'une seule et même interface.
 
-### 4.3 Mode Classification de sentiment
+### 3.4.3 Mode Classification de sentiment
 
-```bash
+Le mode classification illustre le cas d'usage le plus contraint des trois : contrairement au chat ou au résumé, où la réponse attendue est un texte libre de longueur variable, la classification impose une sortie structurée et volontairement brève, ce qui se traduit par un paramètre `max_tokens` réduit à 100 dans le code (contre 512 par défaut pour le chat) et par la désactivation du streaming (`stream=False`), puisqu'une réponse aussi courte n'apporte pas de bénéfice perceptible à un affichage progressif token par token.
+
+```
 python chatbot.py --model models/llama-3.2-1b-q4_k_m.gguf --task classify
 ```
 
 ```
-🏷️  Mode CLASSIFICATION de sentiment
-📝 Texte : Ce smartphone est excellent, la batterie tient toute la journée.
+Mode CLASSIFICATION de sentiment
+Texte : Ce smartphone est excellent, la batterie tient toute la journée.
 
-🏷️  Résultat : [POSITIF] — Confiance : 94 % — Le texte exprime une satisfaction
+Résultat : [POSITIF] — Confiance : 94 % — Le texte exprime une satisfaction
 claire sur deux aspects spécifiques du produit (performance et autonomie).
 
-   ⚡ 8.7 tok/s | 2.1s
+   8.7 tok/s | 2.1s
 ```
 
----
+Le débit de decode plus faible observé ici (8,7 tok/s) par rapport au mode chat (12,4 tok/s dans l'exemple précédent) n'indique pas une dégradation de performance du modèle : il s'explique par le fait qu'une réponse de classification, plus courte, atteint une proportion plus importante de tokens de ponctuation et de structure (crochets, pourcentage) dont la génération peut légèrement varier en vitesse par rapport à du texte narratif continu, un effet de mesure à relativiser sur un échantillon aussi court.
 
-## 5. Module de benchmark (benchmark.py)
+## 3.5 Module de benchmark (benchmark.py)
 
-### 5.1 Prompts de test standardisés
+Distinct du module de chat, `benchmark.py` a pour rôle de produire des mesures de performance reproductibles, indépendamment du contenu saisi par un utilisateur. Cette section présente successivement le jeu de prompts standardisés utilisé, le protocole de mesure appliqué à chaque run (y compris la détection du throttling thermique), la présentation des résultats à l'écran, puis leur sauvegarde persistante — soit l'ensemble de la chaîne allant de la définition du test à l'archivage de son résultat.
 
-Le module définit 4 types de prompts couvrant différents niveaux de charge :
+### 3.5.1 Prompts de test standardisés
 
-| Type | Prompt | Tokens attendus | Description |
-|---|---|---|---|
+Contrairement au mode chat, où le contenu des échanges dépend de l'utilisateur et n'est donc pas reproductible d'une session à l'autre, le module de benchmark repose sur un jeu de prompts fixes, conçus pour solliciter le modèle à des niveaux de charge croissants et comparables entre appareils :
+
+| **Type** | **Prompt** | **Tokens attendus** | **Description** |
+| --- | --- | --- | --- |
 | `short` | "Quelle est la capitale de la France ?" | 30 | Question courte |
 | `medium` | "Explique en 5 points les avantages de l'IA embarquée." | 200 | Charge modérée |
 | `long` | "Rédige un tutoriel llama.cpp sur Android via Termux..." | 500 | Forte charge |
 | `reasoning` | Problème de train Paris-Lyon (512 km, calcul croisement) | 300 | Test de raisonnement |
 
-### 5.2 Protocole de benchmark
+**Tableau 3.2 :** Jeu de prompts standardisés utilisés par le module de benchmark
 
-```python
-def run_single_benchmark(llm, prompt_key, run_index, prev_decode_tps=None):
-    """Exécute un benchmark unique et détecte le throttling."""
+Ces quatre catégories ont été choisies pour couvrir des profils de génération distincts : le prompt `short` teste la latence de première réponse sur une question factuelle triviale, représentative d'un usage ponctuel de type assistant vocal ; le prompt `medium` sollicite une génération structurée de longueur intermédiaire, proche de ce qui est attendu du mode résumé ; le prompt `long` pousse la génération vers sa limite pratique, ce qui permet d'observer d'éventuels effets de dégradation thermique sur une durée d'inférence plus longue, comme mesuré au chapitre 2 (section 3.3) ; enfin, le prompt `reasoning`, construit autour d'un problème arithmétique de croisement de trains, ne teste pas la vitesse mais la capacité du modèle à produire un raisonnement correct en plusieurs étapes, une limite déjà identifiée pour les modèles de moins de 2 milliards de paramètres au chapitre 1 (section 1.3).
 
-    # Mesures
-    ram_before = get_ram_usage_mb()
-    t_start = time.time()
-    first_token_time = None
-    token_count = 0
+### 3.5.2 Protocole de benchmark
 
-    for chunk in llm(prompt, max_tokens=300, temperature=0.1, stream=True):
-        if first_token_time is None:
-            first_token_time = time.time()
-        token_count += 1
+Le protocole de mesure implémenté dans `benchmark.py` reprend la même logique de séparation prefill/decode que le module de chat, mais y ajoute un mécanisme de détection automatique du throttling thermique, phénomène central du chapitre 2 (section 3.10.1) :
 
-    # Détection du throttling
-    decode_tps = token_count / decode_time
-    throttling = False
-    if prev_decode_tps and decode_tps < prev_decode_tps * 0.85:
-        throttling = True  # Dégradation > 15 % = throttling probable
+```
+for chunk in llm(
+    prompt,
+    max_tokens=max_tokens,
+    temperature=0.1,  # Basse température pour reproductibilité
+    stream=True,
+    stop=["</s>", "<|user|>"],
+):
+    if first_token_time is None:
+        first_token_time = time.time()
+    token_count += 1
+    print(".", end="", flush=True)
 
-    return BenchmarkResult(...)
+# Détection du throttling
+decode_tps = token_count / max(decode_time, 0.01)
+throttling = False
+if prev_decode_tps and decode_tps < prev_decode_tps * 0.85:
+    throttling = True  # Dégradation > 15 % = throttling probable
 ```
 
-**La température 0.1** est utilisée pour maximiser la reproductibilité des réponses entre les runs.
+Le code source complet de `run_single_benchmark()` est fourni en Annexe B.
 
-### 5.3 Affichage des résultats
+Le mécanisme de détection du throttling repose sur une comparaison relative plutôt qu'absolue : chaque run de benchmark est comparé au débit de decode du run précédent (`prev_decode_tps`), et une dégradation supérieure à 15 % déclenche un signalement. Ce seuil relatif, plutôt qu'un seuil de débit absolu en tokens/s, a l'avantage de fonctionner indépendamment de la puissance de l'appareil testé : un flagship rapide et un appareil d'entrée de gamme plus lent peuvent tous deux être correctement diagnostiqués, puisque c'est la variation par rapport à leur propre performance de référence qui est observée, non leur débit brut. Ce principe est cohérent avec la méthodologie de détection du throttling déjà appliquée au chapitre 2, où des dégradations de -17 % à -19 % ont été mesurées sur le Galaxy S26 et le Galaxy A16 respectivement. La température d'échantillonnage est volontairement abaissée à 0,1 (contre 0,7 pour le mode chat) afin de maximiser la reproductibilité des réponses générées d'un run à l'autre : à une température aussi basse, le modèle privilégie systématiquement les tokens les plus probables, ce qui limite la variabilité du nombre de tokens générés et donc du temps de mesure, un facteur de bruit expérimental que l'on cherche à minimiser dans un protocole de benchmark. Contrairement au mode chat (section 3.3.2), dont l'invocation de `llama-cli` en sous-processus ne définit aucune séquence d'arrêt explicite, l'appel `llm(...)` de `benchmark.py` — qui utilise directement les bindings `llama-cpp-python`, plutôt que `llama-cli`, car ce module n'a pas besoin d'interface interactive et bénéficie donc pleinement de l'API Python (voir section 3.2.2) — définit une liste `stop=["</s>", "<|user|>"]` : si le modèle génère un jeton correspondant au début d'un nouveau tour de parole ou à un jeton de fin de séquence, la génération s'interrompt immédiatement, ce qui borne la durée de chaque run et évite qu'une dérive du modèle ne fausse la mesure de débit.
+
+### 3.5.3 Affichage des résultats
+
+Les résultats de chaque session de benchmark sont présentés sous forme de tableau récapitulatif directement dans le terminal, avec un calcul de moyenne et d'écart-type par type de prompt, similaire dans sa forme aux tableaux de résultats du chapitre 2 :
 
 ```
 ════════════════════════════════════════════════════════════════════════════════
@@ -283,18 +309,22 @@ def run_single_benchmark(llm, prompt_key, run_index, prev_decode_tps=None):
 ════════════════════════════════════════════════════════════════════════════════
   Type         Run    Prefill     Decode   Tokens    Temps       RAM   Throttle
 ────────────────────────────────────────────────────────────────────────────────
-  short          1    46.2/s    12.8/s      28     2.3s    2245Mo  ✅ Non
-  short          2    45.9/s    12.4/s      28     2.4s    2247Mo  ✅ Non
-  medium         1    47.1/s    12.6/s     187     15.2s   2251Mo  ✅ Non
-  long           1    46.8/s    11.2/s     463     42.1s   2254Mo  ⚠️  OUI
+  short          1    46.2/s    12.8/s      28     2.3s    2245Mo   Non
+  short          2    45.9/s    12.4/s      28     2.4s    2247Mo   Non
+  medium         1    47.1/s    12.6/s     187     15.2s   2251Mo   Non
+  long           1    46.8/s    11.2/s     463     42.1s   2254Mo   Oui
 ────────────────────────────────────────────────────────────────────────────────
   short         μ=12.6 tok/s  σ=0.28  min=12.4  max=12.8
 ════════════════════════════════════════════════════════════════════════════════
 ```
 
-### 5.4 Sauvegarde des résultats
+La colonne "Throttle" illustre directement le mécanisme de détection décrit en section 3.5.2 : le run associé au prompt `long`, seul à dépasser 40 secondes d'inférence continue, est le seul signalé comme potentiellement affecté par une dégradation thermique, ce qui est cohérent avec l'intuition que le throttling apparaît après une charge soutenue plutôt qu'une inférence brève.
 
-```python
+### 3.5.4 Sauvegarde des résultats
+
+Chaque session de benchmark est enregistrée dans un fichier JSON horodaté, accompagné de métadonnées système capturées au moment du test :
+
+```
 def save_benchmark_results(results, model_name):
     """Sauvegarde les résultats en JSON avec métadonnées système."""
     data = {
@@ -307,15 +337,17 @@ def save_benchmark_results(results, model_name):
         json.dump(data, f, indent=2, ensure_ascii=False)
 ```
 
-Les résultats sont stockés dans `results/` au format JSON, avec les métriques système au moment du test (RAM totale, RAM disponible). Ce format permet une analyse ultérieure avec pandas.
+Le choix d'un format JSON plutôt qu'une base de données ou un simple fichier texte répond à un besoin de portabilité et de traçabilité : chaque fichier de résultat est autosuffisant (il inclut le nom du modèle testé, l'horodatage et l'état de la RAM système au moment du test), ce qui permet de comparer a posteriori des sessions de benchmark exécutées à des dates différentes ou sur des appareils différents, sans risque de confusion sur les conditions de mesure. L'inclusion explicite de la RAM système totale et disponible est particulièrement importante sur Android, où la quantité de RAM réellement disponible pour une application varie selon les autres processus actifs au moment du test, un facteur de variance déjà identifié au chapitre 2 pour expliquer certaines valeurs de throttling aberrantes attribuées au gouverneur de fréquence Android plutôt qu'à une réelle contrainte thermique.
 
----
+## 3.6 Métriques collectées (utils.py)
 
-## 6. Métriques collectées (utils.py)
+Les modules `chatbot.py` et `benchmark.py`, présentés dans les sections précédentes, s'appuient tous deux sur une structure de données commune pour représenter les métriques de performance d'une inférence. Cette section décrit cette structure, définie dans `utils.py`, ainsi que la méthode de formatage textuel qui permet de l'afficher de façon lisible directement dans le terminal.
 
-### 6.1 Structure InferenceMetrics
+### 3.6.1 Structure InferenceMetrics
 
-```python
+L'ensemble des mesures de performance produites par le prototype, qu'il s'agisse d'un tour de chat ou d'un run de benchmark, est encapsulé dans une unique structure de données :
+
+```
 @dataclass
 class InferenceMetrics:
     model_name: str
@@ -332,152 +364,205 @@ class InferenceMetrics:
     cpu_percent: float        # Usage CPU moyen
 ```
 
-### 6.2 Résumé textuel automatique
+L'utilisation d'une `dataclass` Python plutôt qu'un simple dictionnaire présente un double avantage pour ce prototype : elle garantit, par typage statique, que chaque métrique attendue est bien présente et du bon type à chaque appel, ce qui évite des erreurs silencieuses (une métrique oubliée ou mal nommée) qui seraient difficiles à détecter dans un dictionnaire non structuré ; elle permet également une sérialisation directe en JSON via la fonction `asdict()`, utilisée par le module de benchmark pour l'enregistrement des résultats. La structure distingue systématiquement les métriques de RAM avant et après inférence (`ram_before_mb`, `ram_after_mb`) plutôt que la seule variation, ce qui permet de vérifier, sur une session longue, si la consommation mémoire de base dérive progressivement d'un tour de parole à l'autre — un signe éventuel de fuite mémoire qui ne serait pas visible si seul le delta était conservé.
 
-```python
+### 3.6.2 Résumé textuel automatique
+
+Pour faciliter la lecture immédiate des métriques après chaque réponse, sans devoir consulter le fichier JSON, la structure `InferenceMetrics` expose une méthode de formatage textuel :
+
+```
 def summary(self) -> str:
     return (
-        f"  Prefill  : {self.prefill_time_s:.2f}s ({self.prefill_speed_tps:.1f} tok/s)\n"
-        f"  Decode   : {self.decode_time_s:.2f}s ({self.decode_speed_tps:.1f} tok/s)\n"
-        f"  Total    : {self.total_time_s:.2f}s\n"
-        f"  RAM delta: +{self.ram_delta_mb:.0f} Mo ({self.ram_after_mb:.0f} Mo total)\n"
-        f"  CPU usage: {self.cpu_percent:.1f}%"
+        f"\n{'─'*50}\n"
+        f"  Modèle       : {self.model_name}\n"
+        f"  Prompt       : {self.prompt_tokens} tokens\n"
+        f"  Généré       : {self.generated_tokens} tokens\n"
+        f"  Prefill      : {self.prefill_time_s:.2f}s "
+        f"({self.prefill_speed_tps:.1f} tok/s)\n"
+        f"  Decode       : {self.decode_time_s:.2f}s "
+        f"({self.decode_speed_tps:.1f} tok/s)\n"
+        f"  Total        : {self.total_time_s:.2f}s\n"
+        f"  RAM delta    : +{self.ram_delta_mb:.0f} Mo "
+        f"({self.ram_after_mb:.0f} Mo total)\n"
+        f"  CPU usage    : {self.cpu_percent:.1f}%\n"
+        f"{'─'*50}"
     )
 ```
 
----
+Le code source complet de `utils.py` — y compris les fonctions de mesure système (`get_ram_usage_mb`, `get_system_ram_mb`, `safe_cpu_percent`) et de sauvegarde (`save_metrics`) — est fourni en Annexe C.
 
-## 7. Installation et utilisation
+Cette méthode est appelée directement depuis les modes résumé et classification (section 3.4) pour afficher un rapport de performance complet après chaque génération, alors que le mode chat n'affiche qu'une version condensée sur une seule ligne (débit, temps total, delta RAM) afin de ne pas alourdir visuellement une conversation censée rester fluide. Ce choix illustre un arbitrage volontaire entre exhaustivité de l'information et lisibilité de l'interface, tranché différemment selon le cas d'usage.
 
-### 7.1 Prérequis
+## 3.7 Installation et utilisation
 
-```bash
+Après avoir détaillé l'architecture et le fonctionnement interne du prototype, cette section décrit la procédure d'installation et les différentes façons de le lancer, depuis les prérequis logiciels jusqu'aux paramètres avancés disponibles en ligne de commande. Ces étapes complètent, du point de vue de l'utilisateur final, les choix d'implémentation justifiés dans les sections précédentes.
+
+### 3.7.1 Prérequis
+
+L'installation du prototype suit directement la procédure Termux déjà détaillée au chapitre 2 (section 1.1), à laquelle s'ajoutent les dépendances Python propres à ce prototype :
+
+```
 # Sur Android (Termux)
+
 pkg install python
+
 pip install -r requirements.txt
 
 # requirements.txt
-# llama-cpp-python>=0.2.90
+
+# llama-cpp-python>=0.2.90 (utilisé uniquement par benchmark.py)
+
 # psutil>=5.9.0
+
 # rich>=13.7.0
+
 # prompt_toolkit>=3.0.43
-# pandas>=2.0.0
+
+# pandas>=2.0.0 (commenté — non importé, retiré après échec de compilation sous Termux)
 ```
 
-### 7.2 Lancement
+Le fichier `requirements.txt` complet est fourni en Annexe D. La contrainte de version minimale `llama-cpp-python>=0.2.90` n'est pas arbitraire : elle correspond à la première version des bindings intégrant de façon stable le support du streaming token par token utilisé dans `benchmark.py`, une fonctionnalité indisponible dans les versions antérieures de la bibliothèque. Fixer cette borne dans `requirements.txt` évite qu'une installation avec une version plus ancienne échoue silencieusement ou produise un comportement dégradé.
 
-```bash
+L'installation sur les appareils Android testés (Termux) n'a pas été immédiate : plusieurs dépendances transitives ont nécessité une intervention manuelle avant de fonctionner correctement, comme documenté dans le journal de validation du prototype. `numpy` (dépendance de `llama-cpp-python`, donc de `benchmark.py`) échoue à la compilation sous Termux, la bibliothèque C d'Android (Bionic) ne déclarant pas certaines fonctions `complex long double` (`ccosl`, `csinl`) attendues par le code source de `numpy` ; la solution retenue a été d'installer la version précompilée fournie par le gestionnaire de paquets Termux (`pkg install python-numpy`) plutôt que de laisser `pip` compiler depuis les sources. Une contrainte similaire est apparue avec `psutil` sur l'un des appareils testés, résolue de la même façon (`pkg install python-psutil`). Ces incidents, mineurs mais réels, illustrent une difficulté pratique peu documentée dans la littérature sur l'inférence embarquée : la compatibilité d'un environnement Python complet sur Android dépend autant de la disponibilité de paquets précompilés que de la faisabilité théorique de l'inférence elle-même.
+
+### 3.7.2 Lancement
+
+Le prototype expose un unique point d'entrée (`chatbot.py`), dont le comportement varie selon les arguments de ligne de commande fournis, ce qui évite la prolifération de scripts distincts pour chaque cas d'usage :
+
+```
 # Mode démo sans modèle (réponses simulées)
+
 python chatbot.py --mock
 
 # Chat interactif avec modèle réel
+
 python chatbot.py --model ~/models/llama-3.2-1b-instruct-q4_k_m.gguf
 
 # Mode résumé
+
 python chatbot.py --model ~/models/llama-3.2-1b-instruct-q4_k_m.gguf --task summary
 
 # Mode classification
+
 python chatbot.py --model ~/models/llama-3.2-1b-instruct-q4_k_m.gguf --task classify
 
 # Benchmark complet
+
 python benchmark.py --model ~/models/llama-3.2-1b-instruct-q4_k_m.gguf --runs 3
 
 # Benchmark en mode démo
+
 python benchmark.py --mock --runs 3
 ```
 
-### 7.3 Paramètres avancés
+Le mode `--mock`, disponible aussi bien pour le chatbot que pour le benchmark, mérite une attention particulière : il permet de tester l'intégralité de l'interface (saisie, affichage, enchaînement des commandes) sans charger de modèle réel, en simulant des réponses à une vitesse de génération réaliste (10 à 15 tokens/s). Ce mode s'est révélé utile à deux étapes du développement de ce PFE : lors du développement initial de l'interface, avant même d'avoir un modèle GGUF téléchargé et validé, et lors de démonstrations ou de vérifications rapides ne nécessitant pas de solliciter réellement le processeur de l'appareil de test.
 
-| Paramètre | Défaut | Description |
-|---|---|---|
+### 3.7.3 Paramètres avancés
+
+Au-delà du choix du modèle et de la tâche, plusieurs paramètres en ligne de commande permettent d'ajuster le comportement du prototype sans modifier le code source. Les deux points d'entrée (`chatbot.py` et `benchmark.py`) exposent chacun leur propre jeu de paramètres, résumés séparément ci-dessous :
+
+| **Paramètre (chatbot.py)** | **Défaut** | **Description** |
+| --- | --- | --- |
+| `--model` | — | Chemin vers le fichier GGUF |
+| `--llama-cli` | `~/llama.cpp/build/bin/llama-cli` | Chemin vers le binaire llama-cli |
+| `--task` | chat | Tâche à exécuter (chat, summary, classify) |
 | `--n-ctx` | 2048 | Taille du contexte en tokens |
 | `--threads` | 4 | Nombre de threads CPU (recommandé : nproc) |
 | `--max-tokens` | 512 | Tokens maximum générés par réponse |
 | `--input-file` | — | Fichier texte d'entrée pour le mode résumé |
 | `--no-stream` | False | Désactiver l'affichage token par token |
-| `--prompts` | all | Types de prompts pour le benchmark |
+| `--mock` | False | Mode démo sans modèle réel |
 
----
+**Tableau 3.3 :** Paramètres en ligne de commande de `chatbot.py`
 
-## 8. Résultats observés sur le prototype
+| **Paramètre (benchmark.py)** | **Défaut** | **Description** |
+| --- | --- | --- |
+| `--model` | — | Chemin vers le fichier GGUF |
+| `--runs` | 3 | Répétitions par type de prompt |
+| `--prompts` | all | Types de prompts testés (short, medium, long, reasoning) |
+| `--threads` | 4 | Nombre de threads CPU |
+| `--n-ctx` | 2048 | Taille du contexte en tokens |
+| `--mock` | False | Mode démo sans modèle réel |
 
-### 8.1 Performances sur appareils testés (LLaMA 3.2 1B Q4_K_M, chat interactif)
+**Tableau 3.4 :** Paramètres en ligne de commande de `benchmark.py`
 
-| Appareil | SoC | Decode moyen | Latence réponse courte | Mémoire modèle |
-|---|---|---|---|---|
-| Galaxy S26 Ultra | Snapdragon 8 Elite | ~46 tok/s | ~0,6 s | ~800 Mo |
-| Galaxy A73 | Snapdragon 778G | ~13,4 tok/s | ~2,0 s | ~800 Mo |
-| Galaxy A71 | Snapdragon 730 | ~11,5 tok/s | ~2,5 s | ~800 Mo |
-| Infinix Hot 60i | Dimensity 6400 | ~12,7 tok/s | ~2,2 s | ~800 Mo |
-| Galaxy A26 | Exynos 1280 | ~10,8 tok/s | ~2,8 s | ~800 Mo |
-| Galaxy A16 | Exynos 1330 | ~14,0 tok/s | ~2,0 s | ~800 Mo |
+Le paramètre `--threads`, dont la valeur recommandée est `nproc` (nombre de cœurs disponibles sur l'appareil), reprend directement la logique de parallélisation déjà appliquée à la compilation de llama.cpp au chapitre 2 : allouer un thread par cœur physique maximise l'utilisation du CPU pendant l'inférence, au prix d'une consommation énergétique plus élevée, un compromis discuté en détail au chapitre 2 (section 3.8).
 
-### 8.2 Qualité des réponses
+## 3.8 Résultats observés sur le prototype
 
-**Mode chat (Q/R factuelle)** : Qualité satisfaisante pour les questions simples en français. Le modèle LLaMA 3.2 1B répond correctement à ~80 % des questions factuelles directes ; les questions nécessitant un raisonnement en plusieurs étapes produisent des réponses partielles ou incorrectes.
+Les sections précédentes ont détaillé l'implémentation du prototype ; celle-ci en présente les résultats observés lors de son exécution effective sur le corpus d'appareils de ce PFE. Trois angles sont couverts successivement : les performances brutes de génération en mode chat interactif, la qualité perçue des réponses selon le cas d'usage, et les limites pratiques rencontrées lors d'un usage prolongé — trois dimensions complémentaires à la seule mesure de débit déjà présentée au chapitre 2.
 
-**Mode résumé** : Bonne qualité sur des textes < 500 mots (dans la fenêtre de contexte). Les textes longs doivent être pré-découpés par l'utilisateur.
+### 3.8.1 Performances sur les appareils validés (LLaMA 3.2 1B Q4_K_M, chat interactif)
 
-**Mode classification** : Précision élevée (~87 % sur des exemples manuels) pour les sentiments clairement exprimés ; nuances et ironie mal détectées.
+Contrairement au protocole de benchmark automatisé du chapitre 2, qui a pu être exécuté sur l'ensemble des six appareils du corpus grâce à sa nature non interactive, la validation du prototype `chatbot.py` — qui nécessite une observation qualitative de chaque réponse, tour par tour — n'a été menée à son terme que sur deux appareils représentatifs : le Galaxy S26 Ultra (Snapdragon 8 Elite, haut de gamme) et le Galaxy A16 (Exynos 1330, entrée de gamme), choisis pour représenter les deux extrémités du corpus en termes de puissance de calcul. Le protocole complet (douze questions factuelles et de raisonnement, un exercice de résumé, six textes de classification, rejoués sur plusieurs runs indépendants) est détaillé en Annexe E ; seuls les résultats agrégés sont présentés ici.
 
-### 8.3 Limites pratiques observées
+| **Appareil** | **SoC** | **Prefill observé** | **Decode observé** |
+| --- | --- | --- | --- |
+| Galaxy S26 Ultra | Snapdragon 8 Elite | ~150 à 235 tok/s | ~50 à 60 tok/s |
+| Galaxy A16 | Exynos 1330 | ~12,1 à 52,0 tok/s | ~3,9 à 7,8 tok/s |
 
-- **Contexte** : la fenêtre de 2 048 tokens est atteinte après ~10 échanges conversationnels moyens. Au-delà, les premiers messages disparaissent du contexte — le modèle "oublie" les instructions initiales.
-- **Cohérence longue** : sur des conversations de plus de 15 tours, le modèle 1B commence à répéter ou à perdre le fil.
-- **Temps de chargement** : 3–8 secondes selon le SoC pour charger le modèle GGUF en mémoire.
+**Tableau 3.5 :** Performances observées sur le prototype interactif, par appareil (LLaMA 3.2 1B Q4_K_M)
 
----
+Ces plages de valeurs, plus larges que les moyennes ponctuelles rapportées au chapitre 2, reflètent la variabilité observée sur plusieurs tours de parole réels plutôt qu'une unique mesure de référence obtenue via `llama-bench`. Elles confirment l'écart de segment de gamme déjà établi au chapitre 2 entre les deux appareils, mais à un niveau de performance sensiblement inférieur à celui mesuré par `llama-bench` pour ces deux mêmes appareils : ce n'est pas une contradiction avec les résultats du chapitre 2, mais une conséquence directe de l'architecture retenue pour `chatbot.py` (section 3.2.1), où le modèle est rechargé depuis le stockage à chaque tour de parole via un nouveau sous-processus `llama-cli`, plutôt que chargé une seule fois en mémoire comme le fait `llama-bench` ou le module `benchmark.py` du présent prototype (qui utilise, lui, les bindings `llama-cpp-python` avec un modèle chargé une seule fois — voir section 3.5). Ce coût de rechargement répété, assumé comme limite du prototype (section 3.8.3), n'empêche pas le Galaxy A16 de rester utilisable en conversationnel malgré une latence par réponse nettement plus élevée que le S26 Ultra.
 
-## 9. Documentation du pipeline complet
+### 3.8.2 Qualité des réponses
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PIPELINE COMPLET                              │
-│                                                                  │
-│  [Fichier GGUF sur stockage]                                     │
-│         ↓ use_mmap=True (lecture directe, pas de copie RAM)      │
-│  [Modèle chargé — llama-cpp-python]                              │
-│         ↓                                                        │
-│  [Saisie utilisateur] → [build_chat_prompt()]                    │
-│         ↓                                                        │
-│  [Inférence CPU ARM64 (NEON, multi-thread)]                      │
-│         ↓                                                        │
-│  [Streaming tokens → Affichage terminal]                         │
-│         ↓                                                        │
-│  [InferenceMetrics] → [save_metrics() → results/metrics.json]   │
-│         ↓                                                        │
-│  [Conversation history update]                                   │
-│         ↓ (prochain tour)                                        │
-│  [build_chat_prompt(history + nouveau message)]                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+Contrairement à une estimation qualitative globale, la qualité des réponses a été évaluée selon le protocole détaillé en Annexe E, rejoué sur deux runs indépendants sur le Galaxy S26 Ultra et un run sur le Galaxy A16, soit trois échantillons indépendants au total pour la plupart des catégories testées.
 
-**Caractéristiques du pipeline :**
-- **Stateless côté serveur** : aucune communication réseau, aucun état externe
-- **Persistance légère** : les métriques sont sauvegardées en JSON localement
-- **Extensible** : ajouter une nouvelle tâche nécessite uniquement d'ajouter une entrée dans `TASK_PROMPTS` et une fonction de mode
-- **Mode mock** : un mode de démonstration (`--mock`) permet de tester l'interface sans modèle, avec des réponses simulées à vitesse réaliste (10–15 tok/s)
+Sur les sept questions factuelles simples, le modèle répond correctement à cinq questions sur sept de façon stable sur les trois échantillons (capitale de la France, symbole chimique de l'eau, année de la Révolution française, auteur du *Petit Prince*, plus grande planète du système solaire) ; les deux questions restantes échouent systématiquement, quel que soit l'appareil ou le run : le nombre de continents sur Terre (réponses incohérentes ou insuffisantes à chaque tentative) et le nombre de jours d'une année bissextile (la valeur 366 n'a jamais été produite, le modèle générant à la place des approximations telles que « 365,5 » ou « 365,24 »). Ce résultat de 5/7, stable et reproductible, contraste nettement avec le raisonnement multi-étapes : sur les trois échantillons indépendants, le modèle ne produit qu'une seule réponse partielle au total sur quinze tentatives (cinq questions × trois échantillons), toutes les autres étant incorrectes — et de façon instable : les mêmes questions échouent différemment d'un run à l'autre (erreurs de calcul différentes, confusions conceptuelles différentes), ce qui indique que le modèle n'est pas seulement faible en raisonnement multi-étapes, mais imprévisible dans sa manière de l'être. Ce résultat est cohérent avec les limites déjà documentées pour les modèles de moins de 2 milliards de paramètres au chapitre 1 (section 1.3).
 
----
+En mode résumé, testé sur quatre runs au total (trois sur le S26 Ultra, un sur l'A16) avec le même texte source portant sur les trois piliers de l'inférence LLM embarquée, le verdict global est « Bon » (au moins trois des quatre points clés attendus présents) dans trois runs sur quatre, et « Partiel » dans le run restant. Le point le plus instable est la mention des optimisations matérielles (ARM NEON / NPU), présente de façon complète dans deux runs, absente dans un run et partiellement correcte (attribution erronée) dans le run A16 ; le terme « memory-mapping » ou « mmap » n'apparaît d'ailleurs explicitement dans aucun des quatre runs, alors que le principe est généralement décrit correctement avec d'autres mots. Les textes plus longs que le texte de test doivent, par ailleurs, être découpés manuellement par l'utilisateur avant traitement — une limite directement dictée par la fenêtre de contexte de 2048 tokens, qui n'a pas été automatisée dans ce prototype.
 
-## 10. Perspectives d'extension
+En mode classification, les résultats diffèrent nettement selon l'appareil : sur le Galaxy S26 Ultra, les deux runs obtiennent un score parfait de 6/6, soit 12/12 au total, y compris sur le texte volontairement piégeux (ironie : « ce qu'on appelle un service “rapide”... trois semaines d'attente »), correctement classé NÉGATIF dans les deux runs avec une confiance de 65 à 72 % ; au second run, la justification générée mentionne même explicitement un « ton sarcastique ». Sur le Galaxy A16 en revanche, le score chute à 4/6, avec deux échecs qui portent précisément sur les deux cas les plus subtils du protocole : le texte ironique (classé à tort NEUTRE, avec une confiance de seulement 2 % et une justification interne contradictoire) et un texte neutre/mitigé (classé à tort NÉGATIF). Sur l'ensemble des trois échantillons indépendants du cas piège de l'ironie, le résultat est donc de deux corrects sur trois : la détection de l'ironie ne doit pas être présentée comme une capacité acquise du prototype, mais comme un résultat mitigé et dépendant de l'échantillon testé — plus nuancé que l'hypothèse initiale de ce PFE (l'ironie est mal détectée), mais moins optimiste qu'une conclusion tirée du seul run favorable du S26 Ultra.
 
-Le prototype CLI constitue une base documentée et testée pour des développements ultérieurs :
+### 3.8.3 Limites pratiques observées
 
-**Extension Android native** : le ViewModel Kotlin présenté dans le chapitre 2 peut être directement connecté à un backend llama-cpp-python exposé via une API locale (Flask/FastAPI dans Termux) ou via le binding Android natif de llama.cpp.
+Quatre limitations pratiques, observées directement lors de la validation du prototype (Annexe E) plutôt qu'estimées, méritent d'être détaillées ici.
 
-**RAG local** : intégration d'une base vectorielle légère (ChromaDB, FAISS) pour permettre la Q/R sur un corpus de documents locaux, dans les limites de la RAM disponible.
+La première concerne la fenêtre de contexte. Contrairement à une hypothèse initiale de fenêtre glissante (un mécanisme qui retirerait progressivement les messages les plus anciens à l'approche de la limite), le prototype ne met en œuvre aucune stratégie de gestion de la saturation du contexte : lorsque la conversation accumulée dépasse la limite de 2048 tokens fixée au lancement (`-c 2048`), `llama-cli` refuse purement et simplement de traiter la requête suivante, avec une erreur explicite et bloquante. Ce comportement a été confirmé empiriquement sur le Galaxy S26 Ultra : après environ treize échanges (douze questions du protocole suivies d'une tentative de résumé dans la même session), la requête a atteint 2226 tokens, dépassant la limite de 2048, avec l'erreur `request (2226 tokens) exceeds the available context size (2048 tokens), try increasing it`, interrompant immédiatement la session en cours. L'absence de dégradation gracieuse — le prototype ne tronque pas l'historique, ne prévient pas l'utilisateur à l'avance et ne propose aucune reprise automatique — constitue une limite réelle du prototype dans son état actuel, plutôt qu'une caractéristique acceptable masquée par une hypothèse de fenêtre glissante qui n'a en réalité jamais été implémentée.
 
-**Fine-tuning QLoRA** : les modèles GGUF peuvent être remplacés par des variantes fine-tunées sur des données métier spécifiques (service client, aide médicale de premier niveau, FAQ multilingue) — la procédure de quantification PTQ → GGUF est documentée dans l'état de l'art (chapitre 1).
+La deuxième limitation concerne le temps de chargement, dont la nature diffère de celle initialement attendue. Parce que `chatbot.py` invoque un nouveau sous-processus `llama-cli` à chaque tour de parole plutôt que de charger le modèle une seule fois au démarrage (section 3.3.1), ce délai n'est pas un coût ponctuel payé une fois en début de session, mais un coût récurrent payé à chaque échange. Il n'a pas été chronométré précisément dans le cadre de la validation — une limite méthodologique assumée — mais son existence est explicitement signalée à l'utilisateur par le prototype lui-même au lancement du mode chat (« chaque tour de parole recharge le modèle […] un délai de quelques secondes avant la première réponse est donc normal »), et reste cohérent avec les temps de chargement de quelques secondes déjà mesurés au chapitre 2 pour ce même modèle et cette même quantification.
 
-**Interface graphique** : remplacement du CLI par une interface Gradio ou Streamlit pour une démonstration accessible aux non-développeurs, exécutable localement via Termux.
+La troisième limitation concerne la journalisation automatique des métriques. La fonction `save_metrics()` présente un défaut identifié mais non corrigé au cours de ce PFE : en mode interactif, elle n'enregistre pas les métriques de chaque échange comme prévu, mais seulement deux entrées aberrantes générées à la fermeture de session, avec un nombre de tokens générés égal à 1 et des temps de decode mesurant en réalité le temps d'attente écoulé plutôt qu'une génération réelle (127 secondes puis 62 810 secondes, soit 17,4 heures, dans le journal de validation). Aucune des vingt interactions réelles effectuées lors de la validation du prototype (douze questions, six classifications, trois résumés, sur les deux appareils) n'a donc été journalisée correctement en JSON ; les résultats rapportés en section 3.8.2 reposent en conséquence sur une lecture manuelle des sorties affichées à l'écran plutôt que sur les fichiers `results/metrics.json` générés par le prototype. Ce bug, non bloquant pour l'usage du chatbot lui-même, limite en revanche la traçabilité automatisée des sessions et constituerait une correction prioritaire pour une version ultérieure du prototype.
 
----
+Enfin, une quatrième observation, de nature plus positive, concerne la stabilité du sous-processus : aucun crash ni fuite mémoire visible du sous-processus `llama-cli` n'a été observé au cours des sessions de validation, malgré le rechargement répété du modèle à chaque tour de parole — un indice, bien que non quantifié précisément faute d'une journalisation fiable, que l'architecture par sous-processus indépendants reste robuste sur une session d'usage prolongée, même si elle n'est pas optimale en termes de latence.
+
+## 3.9 Documentation du pipeline complet
+
+Pour synthétiser l'ensemble des étapes décrites dans ce chapitre, le déroulement complet du pipeline applicatif, depuis le fichier modèle stocké sur l'appareil jusqu'à l'enregistrement des métriques, peut être résumé comme suit :
+
+1. La disponibilité du binaire `llama-cli` et du fichier GGUF est vérifiée par `load_backend()`, sans chargement effectif du modèle à ce stade (section 3.3.1).
+2. À chaque tour de parole, un nouveau sous-processus `llama-cli` est lancé via `subprocess.Popen`, qui charge alors le modèle depuis le stockage de l'appareil et exécute l'inférence demandée.
+3. La saisie de l'utilisateur est transformée en prompt structuré par `build_chat_prompt()`, qui y intègre l'historique de conversation et l'instruction système appropriée à la tâche en cours.
+4. L'inférence s'exécute entièrement sur CPU ARM64, avec les optimisations vectorielles NEON héritées de la compilation de llama.cpp (chapitre 2, section 1.1.3) et une parallélisation sur plusieurs threads.
+5. Les tokens générés sont transmis en flux continu vers la console, où ils s'affichent progressivement grâce à la bibliothèque `rich`.
+6. Une fois la génération achevée, l'objet `InferenceMetrics` est calculé puis, en principe, enregistré de façon incrémentale dans `results/metrics.json` via `save_metrics()` (mécanisme dont le dysfonctionnement en mode interactif est discuté en section 3.8.3).
+7. L'historique de conversation est mis à jour avec le nouvel échange, prêt à être réintégré dans le prompt du tour de parole suivant.
+
+Quatre propriétés se dégagent de ce pipeline, qui en résument l'intérêt pour la démonstration recherchée dans ce chapitre. Le traitement est intégralement local ("stateless côté serveur") : à aucune étape une communication réseau n'est nécessaire, ce qui confirme concrètement la propriété de confidentialité et de disponibilité hors-ligne mise en avant dans l'état de l'art (chapitre 1). La persistance des métriques reste légère, sous forme de fichiers JSON locaux, sans dépendance à une base de données externe. Le pipeline est également conçu pour être extensible : l'ajout d'une nouvelle tâche ne nécessite qu'une nouvelle entrée dans `TASK_PROMPTS` et une fonction de mode dédiée, sans modification du cœur du pipeline d'inférence. Enfin, le mode `--mock` permet de valider l'ensemble de cette chaîne applicative indépendamment de la disponibilité d'un modèle réel, ce qui a facilité le développement itératif du prototype.
+
+## 3.10 Perspectives d'extension
+
+Le prototype CLI présenté dans ce chapitre constitue une base fonctionnelle et testée, mais volontairement limitée dans son périmètre, à partir de laquelle plusieurs directions d'extension peuvent être envisagées pour des travaux futurs.
+
+Une extension Android native est la direction la plus immédiate : le ViewModel Kotlin déjà présenté au chapitre 2 (section 2.3.1, et détaillé en Annexe C du chapitre 2) pourrait être directement connecté à une API HTTP légère (Flask ou FastAPI exécutée dans Termux) exposant le binaire `llama-cli` déjà validé dans ce chapitre — une approche cohérente avec le choix architectural retenu pour `chatbot.py` (section 3.2.1) — ou au binding Android natif de llama.cpp, ce qui permettrait de combiner l'interface graphique déjà développée pour ML Kit GenAI avec le moteur d'inférence llama.cpp validé dans ce chapitre.
+
+L'intégration d'une composante de génération augmentée par récupération (RAG, Retrieval-Augmented Generation) constitue une deuxième direction : une base vectorielle légère (ChromaDB ou FAISS, toutes deux exécutables localement) permettrait au prototype de répondre à des questions portant sur un corpus de documents personnels de l'utilisateur, dans les limites de la RAM disponible sur l'appareil, ce qui répondrait à une limitation actuelle du prototype (absence de connaissance au-delà de ce qui est contenu dans les poids du modèle).
+
+Le remplacement du modèle de base par une variante affinée via QLoRA (chapitre 1, section 1.1) sur des données spécifiques à un domaine métier (service client, assistance de premier niveau, FAQ multilingue) constitue une troisième piste, la procédure de quantification post-entraînement vers le format GGUF étant déjà documentée dans l'état de l'art de ce PFE.
+
+Enfin, sur le plan strictement ergonomique, le remplacement de l'interface en ligne de commande par une interface graphique légère (Gradio ou Streamlit), exécutable localement via Termux, permettrait de rendre le prototype accessible à des utilisateurs non familiers avec un terminal, pour des démonstrations ou des tests d'utilisabilité plus larges que ceux réalisés dans le cadre de ce PFE.
 
 ## Références
 
-- [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) — bindings Python pour llama.cpp
-- [llama.cpp GitHub](https://github.com/ggml-org/llama.cpp)
-- [GGUF Format Spec](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md)
-- [HuggingFace — Modèles GGUF](https://huggingface.co/models?library=gguf)
-- Xu et al. (2024). *Understanding LLMs Running on Consumer Devices*. arXiv:2410.03613.
+**[5]** llama.cpp Contributors, *GGUF Format Specification*, GitHub, ggml-org/ggml, 2023.
+
+**[8]** G. Gerganov, *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*, GitHub, 2023.
+
+**[22]** D. Xu, et al., *Understanding LLMs Running on Consumer Devices (Understanding LLMs in Your Pockets)*, 2024. arXiv:2410.03613.
+
+**[32]** A. Betlen, et al., *llama-cpp-python: Python bindings for llama.cpp*, GitHub, abetlen/llama-cpp-python, 2023.
+
+**[33]** Hugging Face, *Modèles au format GGUF*, huggingface.co/models?library=gguf, 2024.
+
+*Numérotation harmonisée avec la bibliographie partagée des chapitres 1 et 2 ([5], [8], [22] : mêmes sources, mêmes numéros) ; [32] et [33] sont des sources propres à ce chapitre.*
