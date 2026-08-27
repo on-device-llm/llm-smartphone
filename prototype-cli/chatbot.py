@@ -47,7 +47,8 @@ import psutil
 
 from utils import (
     InferenceMetrics, get_ram_usage_mb, get_system_ram_mb,
-    format_size, save_metrics, build_chat_prompt, mock_generate
+    format_size, save_metrics, build_chat_prompt, mock_generate,
+    safe_cpu_percent,
 )
 
 console = Console() if RICH_AVAILABLE else None
@@ -82,6 +83,13 @@ BANNER = """
 """
 
 DEFAULT_LLAMA_CLI = os.path.expanduser("~/llama.cpp/build/bin/llama-cli")
+
+# Seuil de plausibilité pour decode_time_s : au-delà, la mesure est presque
+# toujours le symptôme d'une suspension du processus (téléphone verrouillé,
+# Doze/app-standby geler l'appel bloquant proc.stdout.read(1)) plutôt qu'une
+# inférence réellement longue — voir journal_validation_prototype.md,
+# incidents #5/#7 (decode_time_s observé jusqu'à 62 810 s soit 17,4 h).
+MAX_PLAUSIBLE_DECODE_S = 120.0
 
 
 # ── Backend llama-cli (subprocess) ───────────────────────────────────────────
@@ -129,20 +137,27 @@ def load_backend(model_path: str, llama_cli_path: str, n_ctx: int = 2048, n_thre
 # plutôt qu'une simple approximation par horodatage. Le format exact varie
 # selon les versions de llama.cpp ("llama_print_timings" ou
 # "llama_perf_context_print"), les deux variantes sont donc couvertes.
-_PROMPT_EVAL_RE = re.compile(r"prompt eval time\s*=\s*([\d.]+)\s*ms\s*/\s*(\d+)\s*tokens")
-_EVAL_RE = re.compile(r"(?<!prompt )eval time\s*=\s*([\d.]+)\s*ms\s*/\s*(\d+)\s*(?:runs|tokens)")
+# Nombre avec séparateur de milliers optionnel (ex. "1,234.56"), pour couvrir
+# les variantes d'affichage de llama.cpp selon les locales/versions.
+_NUM = r"[\d,]+\.?\d*"
+_PROMPT_EVAL_RE = re.compile(rf"prompt eval time\s*=\s*({_NUM})\s*ms\s*/\s*(\d+)\s*tokens?")
+_EVAL_RE = re.compile(rf"(?<!prompt )eval time\s*=\s*({_NUM})\s*ms\s*/\s*(\d+)\s*(?:runs?|tokens?)")
 
 
 def _parse_llama_cli_stats(stderr_text: str):
     """Tente d'extraire les temps de prefill/decode précis depuis les logs
-    de llama-cli. Retourne None si le format n'est pas reconnu, auquel cas
-    l'appelant se rabat sur une estimation par horodatage."""
+    de llama-cli (couvre les préfixes "llama_print_timings" et
+    "llama_perf_context_print", singulier/pluriel de "tokens"/"runs", et les
+    nombres avec séparateur de milliers). Retourne None si le format n'est
+    toujours pas reconnu."""
     prompt_match = _PROMPT_EVAL_RE.search(stderr_text)
     eval_match = _EVAL_RE.search(stderr_text)
     if not (prompt_match and eval_match):
         return None
-    prefill_ms, prompt_tokens = float(prompt_match.group(1)), int(prompt_match.group(2))
-    decode_ms, gen_tokens = float(eval_match.group(1)), int(eval_match.group(2))
+    prefill_ms = float(prompt_match.group(1).replace(",", ""))
+    prompt_tokens = int(prompt_match.group(2))
+    decode_ms = float(eval_match.group(1).replace(",", ""))
+    gen_tokens = int(eval_match.group(2))
     return {
         "prefill_time_s": prefill_ms / 1000.0,
         "prompt_tokens": prompt_tokens,
@@ -160,7 +175,13 @@ def generate_response(
     stream: bool = True,
 ) -> tuple[str, InferenceMetrics]:
     """Génère une réponse en invoquant llama-cli en sous-processus et mesure
-    les performances (débit, latence, empreinte mémoire du sous-processus)."""
+    les performances (débit, latence, empreinte mémoire du sous-processus).
+
+    Lève RuntimeError si l'appel a échoué ou si la mesure obtenue n'est pas
+    exploitable (sortie vide, code retour non nul, statistiques llama-cli non
+    reconnues, ou decode_time_s invraisemblable). L'appelant doit alors
+    traiter ce tour comme un échec plutôt que de sauvegarder une métrique
+    fabriquée dans results/metrics.json (voir save_metrics)."""
 
     cmd = [
         backend["llama_cli"],
@@ -173,15 +194,32 @@ def generate_response(
         "-c", str(backend["n_ctx"]),
         "-t", str(backend["n_threads"]),
         "--no-display-prompt",
+        # Force llama-cli à sortir après une seule génération plutôt que
+        # d'entrer dans son propre mode conversation interne (activé par
+        # défaut dès que le modèle expose un chat template). Sans ce flag,
+        # llama-cli reste vivant après le premier tour et continue de lire
+        # l'entrée standard pour les tours suivants — cassant le modèle
+        # "un sous-processus indépendant par tour" sur lequel repose toute
+        # la mesure de métriques (observé empiriquement : plusieurs tours
+        # absorbés par un seul appel à generate_response(), probablement
+        # la vraie cause du bug historique de save_metrics() en mode
+        # interactif, voir chapitre 3 section 3.8.3).
+        "-no-cnv",
     ]
 
-    cpu_before = psutil.cpu_percent(interval=None)
+    cpu_before = safe_cpu_percent(interval=None)
     t_start = time.time()
     first_token_time = None
     full_output = ""
 
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        # Sans stdin explicite, le sous-processus hérite du terminal du
+        # parent : si -no-cnv échouait pour une raison quelconque (build
+        # différent, flag renommé), llama-cli pourrait quand même lire les
+        # messages tapés en avance par l'utilisateur au lieu de laisser
+        # Python les traiter tour par tour. /dev/null élimine ce risque.
+        stdin=subprocess.DEVNULL,
         text=True, bufsize=1,
     )
 
@@ -221,7 +259,7 @@ def generate_response(
         print()
 
     t_end = time.time()
-    cpu_after = psutil.cpu_percent(interval=0.1)
+    cpu_after = safe_cpu_percent(interval=0.1)
 
     # llama-cli avec --no-display-prompt ne devrait pas ré-imprimer le prompt,
     # mais certaines versions l'ignorent silencieusement : on s'en protège.
@@ -229,19 +267,45 @@ def generate_response(
         full_output = full_output[len(prompt):]
     full_output = full_output.strip()
 
+    # Fix #1 : un code retour non nul ou une sortie vide signalent un échec
+    # réel de la génération (crash, argument invalide, binaire tué) — ce
+    # n'est pas une réponse valide de longueur nulle, et ne doit donc pas
+    # produire une InferenceMetrics fabriquée à partir de zéros/valeurs par
+    # défaut.
+    if proc.returncode != 0 or not full_output:
+        raise RuntimeError(
+            f"Échec de génération llama-cli (code retour={proc.returncode}, "
+            f"sortie vide={not full_output}). "
+            f"Stderr (fin) : {stderr_text[-300:] if stderr_text else '(vide)'}"
+        )
+
     stats = _parse_llama_cli_stats(stderr_text)
-    if stats:
-        prefill_time = max(stats["prefill_time_s"], 0.001)
-        decode_time = max(stats["decode_time_s"], 0.001)
-        prompt_tokens = stats["prompt_tokens"]
-        generated_tokens = stats["generated_tokens"]
-    else:
-        # Repli : estimation par horodatage si les stats de llama-cli n'ont
-        # pas pu être extraites (format de sortie non reconnu).
-        prefill_time = max((first_token_time or t_start) - t_start, 0.01)
-        decode_time = max(t_end - (first_token_time or t_start), 0.01)
-        prompt_tokens = len(prompt.split()) * 4 // 3  # approximation grossière
-        generated_tokens = len(full_output.split()) * 4 // 3 or 1
+    if not stats:
+        # Fix #2 : on ne se rabat plus silencieusement sur une estimation
+        # par horodatage (prompt.split()*4//3, etc.) — elle est imprécise et,
+        # en cas de mise en veille du téléphone (Doze/app-standby) pendant
+        # l'attente bloquante sur proc.stdout.read(1), elle peut produire un
+        # decode_time_s aberrant (observé : 62 810 s soit 17,4 h — voir
+        # journal_validation_prototype.md, incidents #5/#7). On abandonne
+        # la mesure plutôt que de l'enregistrer.
+        raise RuntimeError(
+            "Statistiques llama-cli non reconnues dans stderr (format de "
+            "sortie inattendu) — mesure abandonnée plutôt qu'estimée."
+        )
+
+    prefill_time = max(stats["prefill_time_s"], 0.001)
+    decode_time = max(stats["decode_time_s"], 0.001)
+    prompt_tokens = stats["prompt_tokens"]
+    generated_tokens = stats["generated_tokens"]
+
+    # Fix #3 : garde-fou de plausibilité sur decode_time_s.
+    if decode_time > MAX_PLAUSIBLE_DECODE_S:
+        raise RuntimeError(
+            f"decode_time_s={decode_time:.1f}s dépasse le seuil de "
+            f"plausibilité ({MAX_PLAUSIBLE_DECODE_S:.0f}s) — probable "
+            f"suspension du processus (Doze/app-standby) pendant la "
+            f"génération ; mesure ignorée."
+        )
 
     metrics = InferenceMetrics(
         model_name=model_name,
@@ -320,7 +384,12 @@ def run_chat_mode(backend, model_name: str, mock: bool = False):
             response, delay = mock_generate(user_input)
             print(response)
         else:
-            response, metrics = generate_response(backend, full_prompt, model_name)
+            try:
+                response, metrics = generate_response(backend, full_prompt, model_name)
+            except RuntimeError as e:
+                print(f"\n✗ Échec de la génération : {e}")
+                print("   Ce tour n'est pas comptabilisé (aucune métrique sauvegardée).")
+                continue
             all_metrics.append(metrics)
             save_metrics(metrics)
             print(f"\n   {metrics.decode_speed_tps:.1f} tok/s | "
@@ -364,7 +433,11 @@ def run_summary_mode(backend, model_name: str, input_file: Optional[str] = None,
         print(response)
     else:
         print("\nRésumé en cours de génération...")
-        response, metrics = generate_response(backend, prompt, model_name, stream=True)
+        try:
+            response, metrics = generate_response(backend, prompt, model_name, stream=True)
+        except RuntimeError as e:
+            print(f"\n✗ Échec de la génération : {e}")
+            return
         print(metrics.summary())
         save_metrics(metrics)
 
@@ -387,9 +460,13 @@ def run_classification_mode(backend, model_name: str, mock: bool = False):
         response, _ = mock_generate(text, task="classification")
         print(f"\nRésultat [MOCK] : {response}")
     else:
-        response, metrics = generate_response(
-            backend, prompt, model_name, max_tokens=100, stream=False
-        )
+        try:
+            response, metrics = generate_response(
+                backend, prompt, model_name, max_tokens=100, stream=False
+            )
+        except RuntimeError as e:
+            print(f"\n✗ Échec de la génération : {e}")
+            return
         print(f"\nRésultat : {response}")
         print(metrics.summary())
         save_metrics(metrics)

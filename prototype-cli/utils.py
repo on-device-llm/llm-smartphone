@@ -47,6 +47,29 @@ class InferenceMetrics:
         )
 
 
+_cpu_percent_warned = False
+
+
+def safe_cpu_percent(interval: Optional[float] = None) -> float:
+    """Wrapper autour de psutil.cpu_percent() tolérant l'absence d'accès à
+    /proc/stat, restreint par le système sur Android non-rooté (Termux).
+    Retourne 0.0 (avec un avertissement affiché une seule fois) plutôt que
+    de faire planter le programme dans ce cas — la RAM du sous-processus
+    llama-cli reste mesurée normalement, seul le CPU% global est affecté."""
+    global _cpu_percent_warned
+    try:
+        return psutil.cpu_percent(interval=interval)
+    except (PermissionError, OSError):
+        if not _cpu_percent_warned:
+            print(
+                "\n[Note] CPU% indisponible sur cet appareil "
+                "(/proc/stat restreint par Android) — affiché comme 0.0%, "
+                "la mesure RAM du sous-processus reste correcte.\n"
+            )
+            _cpu_percent_warned = True
+        return 0.0
+
+
 def get_ram_usage_mb() -> float:
     """Retourne la RAM utilisée par le processus courant en Mo."""
     process = psutil.Process(os.getpid())
@@ -81,8 +104,22 @@ def save_metrics(metrics: InferenceMetrics, output_file: str = "results/metrics.
     # Charger l'historique existant
     history = []
     if os.path.exists(output_file):
-        with open(output_file) as f:
-            history = json.load(f)
+        try:
+            with open(output_file) as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            # Fichier corrompu/tronqué (ex. écriture interrompue par un kill
+            # de l'app en arrière-plan) : on ne plante pas et on ne perd pas
+            # la mesure en cours, mais on conserve l'ancien fichier illisible
+            # à côté pour inspection au lieu de l'écraser silencieusement.
+            backup_file = output_file + ".corrupted"
+            print(f"⚠ {output_file} illisible ({e}) — historique réinitialisé, "
+                  f"ancien fichier conservé dans {backup_file}")
+            try:
+                os.replace(output_file, backup_file)
+            except OSError:
+                pass
+            history = []
 
     history.append({
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -91,6 +128,11 @@ def save_metrics(metrics: InferenceMetrics, output_file: str = "results/metrics.
 
     with open(output_file, "w") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
+
+    # Confirmation visible : permet de vérifier immédiatement, pendant un
+    # test réel, que save_metrics() est bien appelée à chaque tour plutôt
+    # que de le découvrir a posteriori en comptant les entrées du JSON.
+    print(f"✓ Métriques sauvegardées ({len(history)} entrées) → {output_file}")
 
 
 def build_chat_prompt(messages: list[dict], system_prompt: str = "") -> str:
