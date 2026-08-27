@@ -135,13 +135,62 @@ def load_backend(model_path: str, llama_cli_path: str, n_ctx: int = 2048, n_thre
 # Motifs de reconnaissance des statistiques imprimées par llama-cli en fin
 # d'exécution (sur stderr), utilisés pour obtenir des métriques précises
 # plutôt qu'une simple approximation par horodatage. Le format exact varie
-# selon les versions de llama.cpp ("llama_print_timings" ou
-# "llama_perf_context_print"), les deux variantes sont donc couvertes.
+# selon les versions de llama.cpp ("llama_print_timings", "llama_perf_context_print",
+# ou "slot print_timing: id X | task Y | ..." sur les builds récents basés sur
+# le serveur HTTP interne) — les regex ne sont volontairement PAS ancrées à un
+# préfixe précis (pas de "^" ni de littéral de préfixe) : elles cherchent
+# "prompt eval time"/"eval time" n'importe où dans le texte, ce qui les rend
+# robustes à ce genre de changement de préfixe entre builds.
 # Nombre avec séparateur de milliers optionnel (ex. "1,234.56"), pour couvrir
 # les variantes d'affichage de llama.cpp selon les locales/versions.
+#
+# IMPORTANT : sur les builds récents (serveur HTTP interne, voir cmd ci-dessous),
+# ces lignes ne sont émises DU TOUT sur stderr qu'avec --perf ET -lv 3 (niveau
+# de verbosité) — sans ces flags, stderr ne contient aucune statistique quel
+# que soit le regex utilisé (vérifié empiriquement sur Galaxy S26 Ultra,
+# build b10154-0e4a03622 : 0 ligne de stats sans -lv, 18 lignes propres avec
+# -lv 3, plusieurs milliers avec -v/--log-verbose qui active aussi le debug
+# complet du chargement des tenseurs — inutile et coûteux en comparaison).
 _NUM = r"[\d,]+\.?\d*"
 _PROMPT_EVAL_RE = re.compile(rf"prompt eval time\s*=\s*({_NUM})\s*ms\s*/\s*(\d+)\s*tokens?")
 _EVAL_RE = re.compile(rf"(?<!prompt )eval time\s*=\s*({_NUM})\s*ms\s*/\s*(\d+)\s*(?:runs?|tokens?)")
+
+# Balise ajoutée par build_chat_prompt() (utils.py) juste avant l'endroit où
+# la réponse du modèle doit commencer, pour le tour de parole courant.
+_ASSISTANT_TAG = "<|assistant|>"
+# Bandeau de vitesse affiché par llama-cli après la réponse, ex.
+# "[ Prompt: 207.0 t/s | Generation: 60.6 t/s ]", suivi de "Exiting...".
+# DOTALL : une fois qu'on voit "[ Prompt:", tout le reste (bandeau + Exiting...)
+# est du bruit de fin de sous-processus, pas de la réponse du modèle.
+_TRAILING_STATS_RE = re.compile(r"\n?\[\s*Prompt\s*:.*", re.DOTALL)
+
+
+def _extract_assistant_reply(full_output: str, prompt: str) -> str:
+    """Isole la réponse effective du modèle dans la sortie brute de llama-cli.
+
+    Sur ce build, --no-display-prompt n'empêche ni l'affichage du bandeau de
+    démarrage (ASCII art, "available commands", etc.) ni l'écho du prompt
+    complet (avec nos balises <|system|>/<|user|>/<|assistant|>) avant la
+    réponse — conséquence du mode conversation forcé par -st (voir le
+    commentaire sur `cmd` dans generate_response). Sans ce nettoyage,
+    full_output contiendrait tout ce bruit en plus de la réponse, qui se
+    retrouverait affiché à l'utilisateur ET enregistré tel quel dans
+    l'historique de conversation (contaminant les tours suivants).
+
+    On extrait donc tout ce qui suit la DERNIÈRE occurrence de la balise
+    <|assistant|> (celle ajoutée pour le tour courant — les tours précédents
+    de la conversation peuvent en contenir d'autres, plus tôt dans le texte),
+    puis on retire le bandeau de vitesse et le "Exiting..." final."""
+    idx = full_output.rfind(_ASSISTANT_TAG)
+    if idx != -1:
+        full_output = full_output[idx + len(_ASSISTANT_TAG):]
+    elif full_output.startswith(prompt):
+        # Repli : cas où le prompt est échoué tel quel, sans balise (autre
+        # build, ou mode non-conversation qui n'insère pas ce bruit).
+        full_output = full_output[len(prompt):]
+    full_output = _TRAILING_STATS_RE.sub("", full_output)
+    full_output = re.sub(r"\n?Exiting\.\.\.\s*$", "", full_output)
+    return full_output.strip()
 
 
 def _parse_llama_cli_stats(stderr_text: str):
@@ -216,6 +265,15 @@ def generate_response(
         # --simple-io force une IO basique compatible avec un sous-processus
         # ("better compatibility in subprocesses and limited consoles").
         "--simple-io",
+        # Sur ce build (serveur HTTP interne), les statistiques précises de
+        # prefill/decode ("slot print_timing: ... prompt eval time = ...")
+        # ne sont émises sur stderr qu'à partir du niveau de verbosité 3 —
+        # --perf seul ou le niveau par défaut ne produisent AUCUNE ligne de
+        # stats (vérifié empiriquement : 0 ligne sans -lv, 18 lignes propres
+        # avec -lv 3, contre plusieurs milliers avec -v qui active en plus
+        # tout le debug de chargement des tenseurs, inutile ici et coûteux).
+        "--perf",
+        "-lv", "3",
     ]
 
     cpu_before = safe_cpu_percent(interval=None)
@@ -273,10 +331,10 @@ def generate_response(
     cpu_after = safe_cpu_percent(interval=0.1)
 
     # llama-cli avec --no-display-prompt ne devrait pas ré-imprimer le prompt,
-    # mais certaines versions l'ignorent silencieusement : on s'en protège.
-    if full_output.startswith(prompt):
-        full_output = full_output[len(prompt):]
-    full_output = full_output.strip()
+    # mais le mode conversation forcé par -st l'échoue quand même (banner,
+    # balises <|system|>/<|user|>/<|assistant|>, bandeau de vitesse) : on
+    # isole la réponse effective (voir _extract_assistant_reply ci-dessus).
+    full_output = _extract_assistant_reply(full_output, prompt)
 
     # Fix #1 : un code retour non nul ou une sortie vide signalent un échec
     # réel de la génération (crash, argument invalide, binaire tué) — ce
