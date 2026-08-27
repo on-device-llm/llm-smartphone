@@ -194,17 +194,20 @@ def generate_response(
         "-c", str(backend["n_ctx"]),
         "-t", str(backend["n_threads"]),
         "--no-display-prompt",
-        # Force llama-cli à sortir après une seule génération plutôt que
-        # d'entrer dans son propre mode conversation interne (activé par
-        # défaut dès que le modèle expose un chat template). Sans ce flag,
-        # llama-cli reste vivant après le premier tour et continue de lire
-        # l'entrée standard pour les tours suivants — cassant le modèle
-        # "un sous-processus indépendant par tour" sur lequel repose toute
-        # la mesure de métriques (observé empiriquement : plusieurs tours
-        # absorbés par un seul appel à generate_response(), probablement
-        # la vraie cause du bug historique de save_metrics() en mode
-        # interactif, voir chapitre 3 section 3.8.3).
+        # -no-cnv seul ne suffit pas : sur certains builds, llama-cli entre
+        # quand même dans son propre mode conversation dès que le modèle
+        # expose un chat template, et reste vivant après le premier tour à
+        # lire l'entrée standard — cassant le modèle "un sous-processus
+        # indépendant par tour" sur lequel repose toute la mesure de
+        # métriques (observé empiriquement : le sous-processus absorbe
+        # plusieurs tours et ne se termine jamais, probablement la vraie
+        # cause du bug historique de save_metrics() en mode interactif,
+        # voir chapitre 3 section 3.8.3). -st/--single-turn est le flag
+        # documenté précisément pour ce cas (prompt fourni via -p) :
+        # "will not be interactive if first turn is predefined with
+        # --prompt" — combiné à -no-cnv en ceinture-bretelles.
         "-no-cnv",
+        "-st",
     ]
 
     cpu_before = safe_cpu_percent(interval=None)
