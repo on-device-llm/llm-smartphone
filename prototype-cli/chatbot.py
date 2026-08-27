@@ -208,6 +208,14 @@ def generate_response(
         # --prompt" — combiné à -no-cnv en ceinture-bretelles.
         "-no-cnv",
         "-st",
+        # Même avec -st, le mode conversation de ce build affiche sa sortie
+        # (réponse, bandeau de vitesse, "Exiting...") en écrivant
+        # directement sur le TTY plutôt que sur stdout/stderr redirigés —
+        # invisible pour un script qui capture ces flux comme ici (observé
+        # empiriquement : returncode=0 mais stdout ET stderr vides).
+        # --simple-io force une IO basique compatible avec un sous-processus
+        # ("better compatibility in subprocesses and limited consoles").
+        "--simple-io",
     ]
 
     cpu_before = safe_cpu_percent(interval=None)
