@@ -367,6 +367,28 @@ def generate_response(
     prompt_tokens = stats["prompt_tokens"]
     generated_tokens = stats["generated_tokens"]
 
+    # Estimation automatique du temps de rechargement du modèle (méthode 1,
+    # voir chapitre 3, section 3.8.3, limitation #2) : le prototype relance
+    # un sous-processus llama-cli indépendant à chaque tour de parole, ce qui
+    # implique un rechargement complet du modèle depuis le stockage avant
+    # toute génération. Ce coût n'était jusqu'ici pas isolé, faute d'avoir
+    # été chronométré séparément. On l'estime ici sans instrumentation
+    # supplémentaire ni chronométrage manuel, à partir de deux horodatages
+    # déjà mesurés par ce même sous-processus (t_start, first_token_time) et
+    # du temps de prefill déjà extrait précisément des statistiques de
+    # llama-cli (stats["prefill_time_s"]) :
+    #
+    #   load_time_s ≈ (first_token_time - t_start) - prefill_time
+    #
+    # c'est-à-dire : tout le temps écoulé entre le lancement du sous-processus
+    # et l'apparition du premier caractère de la réponse, moins la part de ce
+    # délai déjà expliquée par le traitement du prompt (prefill). Cette
+    # estimation reste approximative (elle inclut aussi le coût de démarrage
+    # du sous-processus lui-même, marginal en comparaison du chargement du
+    # modèle) mais elle est automatique, reproductible sur chaque tour, et ne
+    # nécessite aucun chronométrage manuel.
+    load_time = max((first_token_time - t_start) - prefill_time, 0.0)
+
     # Fix #3 : garde-fou de plausibilité sur decode_time_s.
     if decode_time > MAX_PLAUSIBLE_DECODE_S:
         raise RuntimeError(
@@ -380,6 +402,7 @@ def generate_response(
         model_name=model_name,
         prompt_tokens=prompt_tokens,
         generated_tokens=generated_tokens,
+        load_time_s=load_time,
         prefill_time_s=prefill_time,
         decode_time_s=decode_time,
         total_time_s=t_end - t_start,
@@ -462,7 +485,7 @@ def run_chat_mode(backend, model_name: str, mock: bool = False):
             all_metrics.append(metrics)
             save_metrics(metrics)
             print(f"\n   {metrics.decode_speed_tps:.1f} tok/s | "
-                  f"{metrics.total_time_s:.1f}s | "
+                  f"{metrics.total_time_s:.1f}s (dont ~{metrics.load_time_s:.1f}s chargement estimé) | "
                   f"{metrics.ram_delta_mb:.0f} Mo (pic sous-processus)")
 
         conversation.append({"role": "assistant", "content": response})

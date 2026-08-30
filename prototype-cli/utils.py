@@ -16,6 +16,7 @@ class InferenceMetrics:
     model_name: str
     prompt_tokens: int
     generated_tokens: int
+    load_time_s: float          # Temps de rechargement du modèle (estimé, voir chatbot.py)
     prefill_time_s: float       # Temps de traitement du prompt
     decode_time_s: float        # Temps de génération des tokens
     total_time_s: float
@@ -35,6 +36,7 @@ class InferenceMetrics:
             f"  Modèle       : {self.model_name}\n"
             f"  Prompt       : {self.prompt_tokens} tokens\n"
             f"  Généré       : {self.generated_tokens} tokens\n"
+            f"  Chargement   : {self.load_time_s:.2f}s (estimé)\n"
             f"  Prefill      : {self.prefill_time_s:.2f}s "
             f"({self.prefill_speed_tps:.1f} tok/s)\n"
             f"  Decode       : {self.decode_time_s:.2f}s "
