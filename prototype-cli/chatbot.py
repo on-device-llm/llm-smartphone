@@ -243,10 +243,10 @@ def generate_response(
         "-c", str(backend["n_ctx"]),
         "-t", str(backend["n_threads"]),
         "--no-display-prompt",
-        # -no-cnv seul ne suffit pas : sur certains builds, llama-cli entre
-        # quand même dans son propre mode conversation dès que le modèle
-        # expose un chat template, et reste vivant après le premier tour à
-        # lire l'entrée standard — cassant le modèle "un sous-processus
+        # -no-cnv seul ne suffisait déjà pas sur certains builds : llama-cli
+        # entrait quand même dans son propre mode conversation dès que le
+        # modèle expose un chat template, et restait vivant après le premier
+        # tour à lire l'entrée standard — cassant le modèle "un sous-processus
         # indépendant par tour" sur lequel repose toute la mesure de
         # métriques (observé empiriquement : le sous-processus absorbe
         # plusieurs tours et ne se termine jamais, probablement la vraie
@@ -254,8 +254,13 @@ def generate_response(
         # voir chapitre 3 section 3.8.3). -st/--single-turn est le flag
         # documenté précisément pour ce cas (prompt fourni via -p) :
         # "will not be interactive if first turn is predefined with
-        # --prompt" — combiné à -no-cnv en ceinture-bretelles.
-        "-no-cnv",
+        # --prompt" — -no-cnv n'était alors gardé qu'en ceinture-bretelles.
+        # Sur le build testé sur le Galaxy A73 (0.3.0-dev, build 10739,
+        # commit d08c7872d), -no-cnv n'est plus un flag reconnu du tout et
+        # fait échouer llama-cli immédiatement ("invalid argument: -no-cnv",
+        # code retour 1, sortie vide) plutôt que d'être simplement ignoré ou
+        # insuffisant comme sur les builds précédents — il est donc retiré
+        # ici, -st restant seul suffisant pour le comportement recherché.
         "-st",
         # Même avec -st, le mode conversation de ce build affiche sa sortie
         # (réponse, bandeau de vitesse, "Exiting...") en écrivant
