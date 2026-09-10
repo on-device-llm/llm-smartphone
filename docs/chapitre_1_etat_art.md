@@ -85,6 +85,8 @@ ML Kit GenAI (AICore) \[12, 13\], introduit par Google en 2024, est l'API offici
 
 LiteRT, anciennement TensorFlow Lite, est le runtime d'inférence Google pour modèles .tflite ; en 2024, Google a migré TFLite vers LiteRT et ajouté le support LLM via le framework AI Edge LLM Inference. Ce framework supporte NPU et GPU et est utilisé par Google AI Edge Gallery pour Gemma 4 Edge. Il est plus portable que ML Kit GenAI, mais nécessite un format de conversion non trivial depuis GGUF. MediaPipe LLM Inference API [14] offre une alternative plus flexible reposant sur le même runtime : elle supporte Gemma, Phi-2 et Falcon 1B via un pipeline unifié, sans exiger d'appareil certifié. MLC-LLM [15], du groupe MLC AI, utilise Apache TVM pour compiler des modèles directement en code GPU/NPU optimisé ; c'est le seul framework open source à exploiter réellement les GPU Mali via Vulkan, 20 à 25 % plus rapide que llama.cpp sur Snapdragon 8 Gen 3 et Dimensity 9300, au prix d'une compilation par cible matérielle et d'un écosystème de modèles plus restreint que GGUF.
 
+\newpage
+
 | **Critère**    | **llama.cpp**  | **MLC-LLM**        | **ML Kit GenAI**    | **MediaPipe LLM**    |
 | --- | --- | --- | --- | --- |
 | Modèles        | GGUF universel | TVM compilé        | Gemini Nano seul    | Gemma, Phi-2, Falcon |

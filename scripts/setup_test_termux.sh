@@ -30,7 +30,7 @@ shift
 WITH_BENCHMARK=0
 MODEL_URL="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
 MODEL_FILE="Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-BENCHMARK_RAW_URL="https://raw.githubusercontent.com/samiondevicellm/llm-smartphone/main/scripts/benchmark_complet.sh"
+BENCHMARK_RAW_URL="https://raw.githubusercontent.com/on-device-llm/llm-smartphone/main/scripts/benchmark_complet.sh"
 
 while [ $# -gt 0 ]; do
   case "$1" in

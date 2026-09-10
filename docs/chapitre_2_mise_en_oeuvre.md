@@ -558,6 +558,8 @@ python benchmark.py --model models/gemma-2-2b-it-q4_k_m.gguf --runs 5
 
 Cette section présente les premières mesures obtenues avec llama.cpp sur cinq appareils représentatifs de gammes différentes, du flagship récent à l'entrée de gamme. Le modèle utilisé, Gemma 2 2B en quantification Q4_K_M, sert de référence commune pour comparer les SoC entre eux.
 
+\newpage
+
 | **SoC**            | **Appareil**  | **Prefill** | **Decode**  | **RAM delta** | **Throttling 5 min** |
 | --- | --- | --- | --- | --- | --- |
 | Snapdragon 8 Gen 3 | Xiaomi 14 Pro | 28–35 tok/s | 12–16 tok/s | \+2,4 Go      | −12 %                |
@@ -605,11 +607,13 @@ Cette section présente le cœur des mesures originales de ce PIR : dix configur
 
   - Tous les appareils milieu de gamme atteignent **11–14 tok/s en decode**, dans la zone de fluidité conversationnelle.
 
+  - Ce débit dépasse nettement les 5–8 tok/s rapportés dans la littérature sur des SoC comparables avec Gemma 2 2B (tableaux 2.4 et 2.7) — un écart cohérent avec la nature memory-bound du decode (chapitre 1, section 1.4) : un modèle plus léger (Llama 3.2 1B, ~771 Mo) sollicite moins la bande passante mémoire à chaque token qu'un modèle plus lourd (Gemma 2 2B, ~1,5 Go), à SoC équivalent.
+
 ### 3.4 Résultats Google on-device : Gemma 4 E2B-it via LiteRT (Galaxy S26)
 
 Cette section évalue la seconde voie de déploiement présentée en partie 2 de ce chapitre, cette fois au travers de l'application officielle Google AI Edge Gallery plutôt que d'un développement Android Studio complet. Le protocole reprend le même appareil et le même type de prompt que les mesures llama.cpp précédentes, afin de permettre une comparaison directe entre les deux approches.
 
-> *Le benchmark Google on-device a été réalisé via **AI Edge Gallery** (application officielle Google, Play Store), qui expose Gemma 4 E2B-it au format LiteRT quantifié (INT4, ~2,6 Go). Le modèle "via AICore" (Gemini Nano) s'est avéré indisponible sur le Galaxy S26 testé : AICore non initialisé.*
+> *Le benchmark Google on-device a été réalisé via **AI Edge Gallery** (application officielle Google, Play Store), qui expose Gemma 4 E2B-it au format LiteRT quantifié (INT4, ~2,6 Go). Le modèle "via AICore" (Gemini Nano) s'est avéré indisponible sur le Galaxy S26 testé — non pas faute de certification matérielle (le Galaxy S26 figure sur la liste des appareils certifiés AICore par Google), mais parce que la fonctionnalité Gemini multi-app qui l'exploite est, à la date des tests, en déploiement bêta restreint à la Corée du Sud et aux États-Unis, anglais/coréen uniquement (Samsung, page d'assistance officielle TSG10010466) — une restriction géographique côté Google/Samsung, indépendante de l'appareil testé.*
 
 **Protocole :** Galaxy S26 (Snapdragon 8 Elite, 3nm, 12 Go RAM) · Gemma 4 E2B-it LiteRT INT4 · Prompt : "Explique-moi le concept d'intelligence artificielle en 3 phrases."
 
@@ -809,9 +813,9 @@ UserLAnd et Termux constituent deux façons distinctes d'exécuter un environnem
 
 Les résultats confirment que l'inférence LLM on-device est **techniquement viable sur smartphone Android milieu de gamme** en 2025–2026, sous deux conditions : un modèle ≤ 2B paramètres en quantification Q4, et un déploiement via Termux natif.
 
-**Performances** : tous les appareils testés (Snapdragon 730/778G, Exynos 1280/1330, Dimensity 6400) atteignent 11–14 tok/s en decode, dans la zone de fluidité conversationnelle.
+**Performances** : les appareils milieu de gamme testés (Snapdragon 730/778G, Exynos 1280/1330, Dimensity 6400) atteignent 11–14 tok/s en decode, dans la zone de fluidité conversationnelle ; le Snapdragon 8 Elite (Galaxy S26 Ultra), seul représentant haut de gamme du corpus, atteint un débit nettement supérieur (46,68 ± 14,40 tok/s), largement au-delà de ce seuil.
 
-**Throttling** : contrairement aux appareils haut de gamme de la littérature (−8 à −25 % sur 5 min avec Gemma 2 2B), seul l'Exynos 1330 (Galaxy A16) présente un throttling thermique réel dans notre corpus (−19,1 % après ~8 min).
+**Throttling** : la littérature documente un throttling thermique réel sur les appareils haut de gamme (−8 à −25 % sur 5 min avec Gemma 2 2B). Notre corpus le confirme sur son propre représentant haut de gamme, le Snapdragon 8 Elite (Galaxy S26 Ultra, −17,3 % après ~12 min), mais montre aussi que ce phénomène n'est pas réservé au haut de gamme : l'Exynos 1330 (Galaxy A16), pourtant milieu de gamme, présente lui aussi un throttling thermique réel (−19,1 % après ~8 min) — le seul cas de ce type observé hors segment haut de gamme dans notre corpus.
 
 **Consommation** : le modèle 1B Q4 consomme 2–4 % de batterie par 12 minutes de charge, un niveau acceptable pour un usage applicatif réel (sessions de 1–5 minutes).
 
@@ -819,116 +823,374 @@ Ces résultats montrent que le LLM embarqué est une alternative crédible aux A
 
 ## Références
 
-**[1]** T. Brown, B. Mann, N. Ryder, et al., *Language Models are Few-Shot Learners*, NeurIPS 33, 2020. arXiv:2005.14165.
+```
+- [1] Brown, T., Mann, B., Ryder, N., et al. (2020). *Language Models are Few-Shot Learners*. NeurIPS 33. arXiv:2005.14165.
 
-**[2]** GSMA Intelligence, *The Mobile Economy 2024*, GSMA, London, 2024.
+- [2] GSMA Intelligence (2024). *The Mobile Economy 2024*. GSMA, London.
 
-**[3]** T. Dettmers, M. Lewis, Y. Belkada, L. Zettlemoyer, *LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale*, NeurIPS 2022. arXiv:2208.07339.
+- [3] Dettmers, T., Lewis, M., Belkada, Y., & Zettlemoyer, L. (2022). *LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale*. NeurIPS 2022. arXiv:2208.07339.
 
-**[4]** E. Frantar, S. Ashkboos, T. Hoefler, D. Alistarh, *GPTQ: Accurate Post-Training Quantization for GPTs*, 2022. arXiv:2210.17323.
+- [4] Frantar, E., Ashkboos, S., Hoefler, T., & Alistarh, D. (2022). *GPTQ: Accurate Post-Training Quantization for GPTs*. arXiv:2210.17323.
 
-**[5]** llama.cpp Contributors, *GGUF Format Specification*, GitHub, ggml-org/ggml, 2023.
+- [5] llama.cpp Contributors (2023). *GGUF Format Specification*. GitHub, ggml-org/ggml.
 
-**[6]** T. Dettmers, A. Pagnoni, A. Holtzman, L. Zettlemoyer, *QLoRA: Efficient Finetuning of Quantized LLMs*, NeurIPS 2023. arXiv:2305.14314.
+- [6] Dettmers, T., Pagnoni, A., Holtzman, A., & Zettlemoyer, L. (2023). *QLoRA: Efficient Finetuning of Quantized LLMs*. NeurIPS 2023. arXiv:2305.14314.
 
-**[7]** G. Hinton, O. Vinyals, J. Dean, *Distilling the Knowledge in a Neural Network*, NIPS Workshop, 2015. arXiv:1503.02531.
+- [7] Hinton, G., Vinyals, O., & Dean, J. (2015). *Distilling the Knowledge in a Neural Network*. NIPS Workshop. arXiv:1503.02531.
 
-**[8]** G. Gerganov, *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*, GitHub, 2023.
+- [8] Gerganov, G. (2023). *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*. GitHub.
 
-**[9]** Google DeepMind, *Gemini: A Family of Highly Capable Multimodal Models*, 2023. arXiv:2312.11805.
+- [9] Google DeepMind (2023). *Gemini: A Family of Highly Capable Multimodal Models*. arXiv:2312.11805.
 
-**[10]** Google DeepMind, *Gemma: Open Models Based on Gemini Research and Technology*, 2024. arXiv:2403.08295.
+- [10] Google DeepMind (2024). *Gemma: Open Models Based on Gemini Research and Technology*. arXiv:2403.08295.
 
-**[11]** Google DeepMind, *Gemini 2.0 Flash and Flash-Lite: Fast, Efficient Models for Developers*, 2025. ai.google.dev/gemini-api/docs/models.
+- [11] Google DeepMind (2025). *Gemini 2.0 Flash and Flash-Lite: Fast, Efficient Models for Developers*. ai.google.dev/gemini-api/docs/models.
 
-**[12]** Google, *ML Kit GenAI APIs*, 2024. developers.google.com/ml-kit/genai.
+- [12] Google (2024). *ML Kit GenAI APIs*. developers.google.com/ml-kit/genai.
 
-**[13]** Google, *Android AICore*, 2024. developer.android.com/ml/aicore.
+- [13] Google (2024). *Android AICore*. developer.android.com/ml/aicore.
 
-**[14]** Google MediaPipe, *LLM Inference Guide for Android, MediaPipe Solutions*, 2024. ai.google.dev/edge/mediapipe.
+- [14] Google MediaPipe (2024). *LLM Inference Guide for Android, MediaPipe Solutions*. ai.google.dev/edge/mediapipe.
 
-**[15]** MLC AI Contributors, *MLC-LLM: Bring Large Language Models Everywhere*, GitHub, mlc-ai/mlc-llm, 2023.
+- [15] MLC AI Contributors (2023). *MLC-LLM: Bring Large Language Models Everywhere*. GitHub, mlc-ai/mlc-llm.
 
-**[16]** Meta AI, *The Llama 3 Herd of Models*, 2024. arXiv:2407.21783.
+- [16] Meta AI (2024). *The Llama 3 Herd of Models*. arXiv:2407.21783.
+```
 
-**[17]** Z. Liu, C. Zhao, F. Iandola, et al., *MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases*, ICML 2024. arXiv:2402.14905.
+  - [17] Liu, Z., Zhao, C., Iandola, F., et al. (2024). *MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases*. ICML 2024. arXiv:2402.14905.
 
-**[18]** M. Abdin, et al., *Phi-3 Technical Report: A Highly Capable Language Model Locally on Your Phone*, Microsoft Research, 2024. arXiv:2404.14219.
+  - [18] Abdin, M., et al. (2024). *Phi-3 Technical Report: A Highly Capable Language Model Locally on Your Phone*. Microsoft Research. arXiv:2404.14219.
 
-**[19]** Apple ML Research, *Apple Intelligence Foundation Language Models*, 2024. arXiv:2507.13575.
+```
+- [19] Apple ML Research (2024). *Apple Intelligence Foundation Language Models*. arXiv:2507.13575.
+```
 
-**[20]** Z. Xue, Y. Wei, R. Chen, et al., *PowerInfer-2: Fast Large Language Model Inference on a Smartphone*, MobiCom 2024. arXiv:2406.06282.
+  - [20] Xue, Z., Wei, Y., Chen, R., et al. (2024). *PowerInfer-2: Fast Large Language Model Inference on a Smartphone*. MobiCom 2024 / arXiv:2406.06282.
 
-**[21]** Qualcomm Technologies Inc., *Snapdragon 8 Gen 3 Mobile Platform*, Technical Overview, 2024.
+```
+- [21] Qualcomm Technologies Inc. (2024). *Snapdragon 8 Gen 3 Mobile Platform*. Technical Overview.
+```
 
-**[22]** D. Xu, et al., *Understanding LLMs Running on Consumer Devices (Understanding LLMs in Your Pockets)*, 2024. arXiv:2410.03613.
+  - [22] Xu, D., et al. (2024). *Understanding LLMs Running on Consumer Devices (Understanding LLMs in Your Pockets)*. arXiv:2410.03613.
 
-**[23]** H. Fassold, *Porting LLMs to Mobile Devices for Question Answering*, IEEE/CVF CVPR Workshops, 2024.
+```
+- [23] Fassold, H. (2024). *Porting LLMs to Mobile Devices for Question Answering*. IEEE/CVF CVPR Workshops 2024.
+```
 
-**[24]** D. Xu, et al., *lm-Meter: Unveiling Runtime Inference Latency for On-Device Language Models*, 2024. arXiv:2510.06126.
+  - [24] Xu, D., et al. (2024). *lm-Meter: Unveiling Runtime Inference Latency for On-Device Language Models*. arXiv:2510.06126.
 
-**[25]** W. Yin, M. Xu, Y. Li, *LLM as a System Service on Mobile Devices*, 2024. arXiv:2403.11805.
+```
+- [25] Yin, W., Xu, M., & Li, Y. (2024). *LLM as a System Service on Mobile Devices*. arXiv:2403.11805.
 
-**[26]** Q. Ye, Z. Li, W. Feng, M. Guizani, H. Yu, *Prima.cpp: Speeding Up 70B-Scale LLM Inference on Low-Resource Everyday Home Clusters*, 2025. arXiv:2504.08791.
+- [26] Ye, Q., Li, Z., Feng, W., Guizani, M., & Yu, H. (2025). *Prima.cpp: Speeding Up 70B-Scale LLM Inference on Low-Resource Everyday Home Clusters*. arXiv:2504.08791.
+```
 
-**[27]** Li et al., *PalmBench: A Comprehensive Benchmark of Compressed Large Language Models on Mobile Platforms*, 2024. arXiv:2410.05315.
+  - [27] Li et al. (2024). *PalmBench: A Comprehensive Benchmark of Compressed Large Language Models on Mobile Platforms*. arXiv:2410.05315.
 
-**[28]** Murthy et al., *MobileAIBench: Benchmarking LLMs and LMMs for On-Device Use Cases*, NeurIPS 2024. arXiv:2406.10290.
+  - [28] Murthy et al. (2024). *MobileAIBench: Benchmarking LLMs and LMMs for On-Device Use Cases*. NeurIPS 2024. arXiv:2406.10290.
 
-**[29]** Song et al., *A Systematic Evaluation of On-Device LLMs: Quantization, Performance, and Resources*, 2025. arXiv:2505.15030.
+  - [29] Song et al. (2025). *A Systematic Evaluation of On-Device LLMs: Quantization, Performance, and Resources*. arXiv:2505.15030.
 
-**[30]** Tummalapalli et al., *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*, 2026. arXiv:2603.23640.
+```
+- [30] Tummalapalli et al. (2026). *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*. arXiv:2603.23640.
 
-**[31]** M. Yadav, P. Bhargavi, *Optimizing LLMs Using Quantization For Mobile Execution*, ICT4SD 2025, Springer LNNS. arXiv:2512.06490.
+- [31] Yadav, M. & Bhargavi, P. (2024). *Optimizing LLMs Using Quantization For Mobile Execution*. ICT4SD 2025, Springer LNNS. arXiv:2512.06490.
+```
 
-## Liste des tableaux
+## Annexes
 
-- Tableau 1.1 : Comparaison des modèles LLM disponibles pour smartphone
+**Annexe A : Configuration Gradle du projet Android (**build.gradle.kts**)**
 
-- Tableau 1.2 : Comparaison des capacités qualitatives par modèle
+```
+// build.gradle.kts (module app)
+android {
+compileSdk = 35
+defaultConfig {
+minSdk = 29
+targetSdk = 35
+}
+buildFeatures {
+viewBinding = true
+}
+compileOptions {
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
+}
+kotlinOptions {
+jvmTarget = "17"
+}
+}
+dependencies {
+// ML Kit GenAI — Summarization, Proofreading, Free-form inference
+implementation("com.google.mlkit:genai-common:1.0.0-beta1")
+implementation("com.google.mlkit:genai-inference:1.0.0-beta1")
+// Coroutines pour l'inférence asynchrone
+implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
+implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+// UI
+implementation("androidx.recyclerview:recyclerview:1.3.2")
+implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+implementation("com.google.android.material:material:1.11.0")
+}
+```
 
-- Tableau 1.3 : Comparaison des frameworks d'inférence mobile
+**Annexe B : Manifeste Android (**AndroidManifest.xml**)**
 
-- Tableau 1.4 : Comparaison des architectures d'exécution locale, hybride et cloud
+```
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<\!-- Requis pour télécharger le modèle Gemini Nano -->
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-library
+android:name="android.ext.adservices"
+android:required="false" />
+<application
+android:name=".LlmChatApplication"
+android:allowBackup="true"
+android:label="@string/app_name"
+android:theme="@style/Theme.LlmChat">
+<activity
+android:name=".MainActivity"
+android:exported="true">
+<intent-filter>
+<action android:name="android.intent.action.MAIN" />
+<category android:name="android.intent.category.LAUNCHER" />
+</intent-filter>
+</activity>
+<meta-data
+android:name="com.google.mlkit.genai.ENABLED"
+android:value="true" />
+</application>
+</manifest>
+```
 
-- Tableau 1.5 : Synthèse de l'état de l'art et perspectives 2027
+**Annexe C : Code source complet —** LlmViewModel.kt
 
-- Tableau 2.1 : Prérequis matériels pour l'installation via Termux
+```
+// LlmViewModel.kt
+package com.PFE.llmchat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.google.mlkit.genai.inference.LanguageModelInference
+import com.google.mlkit.genai.inference.InferenceOptions
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+data class ChatMessage(
+val content: String,
+val isUser: Boolean,
+val timestamp: Long = System.currentTimeMillis(),
+val latencyMs: Long = 0
+)
+sealed class InferenceState {
+object Idle : InferenceState()
+object ModelLoading : InferenceState()
+object ModelReady : InferenceState()
+data class Generating(val partialText: String) : InferenceState()
+data class Error(val message: String) : InferenceState()
+}
+class LlmViewModel : ViewModel() {
+private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+val messages: StateFlow<List<ChatMessage>> = _messages
+private val _state = MutableStateFlow<InferenceState>(InferenceState.Idle)
+val state: StateFlow<InferenceState> = _state
+private var modelClient: LanguageModelInference? = null
+fun initializeModel() {
+viewModelScope.launch {
+_state.value = InferenceState.ModelLoading
+try {
+val availability = LanguageModelInference.checkAvailability()
+if (\!availability.isAvailable) {
+_state.value = InferenceState.Error(
+"Gemini Nano non disponible sur cet appareil. " +
+"Appareils supportés : Pixel 9/10, Galaxy S25/S26."
+)
+return@launch
+}
+modelClient = LanguageModelInference.getClient()
+_state.value = InferenceState.ModelReady
+} catch (e: Exception) {
+_state.value = InferenceState.Error("Erreur initialisation : ${e.message}")
+}
+}
+}
+fun sendMessage(userInput: String) {
+val client = modelClient ?: return
+val startTime = System.currentTimeMillis()
+_messages.value = _messages.value + ChatMessage(userInput, isUser = true)
+viewModelScope.launch {
+_state.value = InferenceState.Generating("")
+val sb = StringBuilder()
+try {
+val options = InferenceOptions.Builder()
+.setMaxTokens(512)
+.setTemperature(0.7f)
+.setTopK(40)
+.build()
+client.generateResponseAsync(
+prompt = buildPrompt(userInput),
+options = options,
+onPartialResult = { partial ->
+sb.append(partial)
+_state.value = InferenceState.Generating(sb.toString())
+},
+onComplete = { _ ->
+val latency = System.currentTimeMillis() - startTime
+_messages.value = _messages.value + ChatMessage(
+content = sb.toString(),
+isUser = false,
+latencyMs = latency
+)
+_state.value = InferenceState.ModelReady
+},
+onError = { e ->
+_state.value = InferenceState.Error("Erreur inférence : ${e.message}")
+}
+)
+} catch (e: Exception) {
+_state.value = InferenceState.Error(e.message ?: "Erreur inconnue")
+}
+}
+}
+private fun buildPrompt(userInput: String): String {
+val history = _messages.value.takeLast(6)
+val sb = StringBuilder()
+history.forEach { msg ->
+if (msg.isUser) sb.append("User: ${msg.content}\n")
+else sb.append("Assistant: ${msg.content}\n")
+}
+sb.append("User: $userInput\nAssistant:")
+return sb.toString()
+}
+override fun onCleared() {
+super.onCleared()
+modelClient?.close()
+}
+}
+```
 
-- Tableau 2.2 : Paramètres d'inférence llama.cpp recommandés pour mobile
+**Annexe D : Code source complet —** MainActivity.kt
 
-- Tableau 2.3 : Erreurs fréquentes et solutions lors de l'installation Termux
+```
+// MainActivity.kt
+package com.PFE.llmchat
+import android.os.Bundle
+import android.view.inputmethod.EditorInfo
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.PFE.llmchat.databinding.ActivityMainBinding
+import kotlinx.coroutines.launch
+class MainActivity : AppCompatActivity() {
+private lateinit var binding: ActivityMainBinding
+private val viewModel: LlmViewModel by viewModels()
+private lateinit var chatAdapter: ChatAdapter
+override fun onCreate(savedInstanceState: Bundle?) {
+super.onCreate(savedInstanceState)
+binding = ActivityMainBinding.inflate(layoutInflater)
+setContentView(binding.root)
+setupRecyclerView()
+setupInput()
+observeState()
+viewModel.initializeModel()
+}
+private fun setupRecyclerView() {
+chatAdapter = ChatAdapter()
+binding.rvChat.apply {
+layoutManager = LinearLayoutManager(this@MainActivity).apply {
+stackFromEnd = true
+}
+adapter = chatAdapter
+}
+}
+private fun setupInput() {
+binding.btnSend.setOnClickListener { sendMessage() }
+binding.etInput.setOnEditorActionListener { _, actionId, _ ->
+if (actionId == EditorInfo.IME_ACTION_SEND) {
+sendMessage(); true
+} else false
+}
+}
+private fun sendMessage() {
+val text = binding.etInput.text?.toString()?.trim() ?: return
+if (text.isEmpty()) return
+binding.etInput.text?.clear()
+viewModel.sendMessage(text)
+}
+private fun observeState() {
+lifecycleScope.launch {
+viewModel.state.collect { state ->
+when (state) {
+is InferenceState.ModelLoading ->
+binding.tvStatus.text = "Chargement de Gemini Nano..."
+is InferenceState.ModelReady ->
+binding.tvStatus.text = "Gemini Nano prêt"
+is InferenceState.Generating ->
+binding.tvStatus.text = "Génération en cours..."
+is InferenceState.Error ->
+binding.tvStatus.text = "${state.message}"
+else -> {}
+}
+}
+}
+lifecycleScope.launch {
+viewModel.messages.collect { messages ->
+chatAdapter.submitList(messages)
+binding.rvChat.smoothScrollToPosition(messages.size)
+}
+}
+}
+}
+```
 
-- Tableau 2.4 : Performances mesurées dans la littérature (Gemma 2 2B Q4, multi-plateformes)
+**Annexe E : Layout XML —** activity_main.xml
 
-- Tableau 2.5 : Versions Android et API requises pour ML Kit GenAI
+```
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+xmlns:android="http://schemas.android.com/apk/res/android"
+xmlns:app="http://schemas.android.com/apk/res-auto"
+android:layout_width="match_parent"
+android:layout_height="match_parent">
+<TextView
+android:id="@+id/tv_status"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:padding="8dp"
+android:text="Initialisation..."
+android:textSize="12sp"
+app:layout_constraintTop_toTopOf="parent"/>
+<androidx.recyclerview.widget.RecyclerView
+android:id="@+id/rv_chat"
+android:layout_width="match_parent"
+android:layout_height="0dp"
+android:padding="8dp"
+app:layout_constraintTop_toBottomOf="@id/tv_status"
+app:layout_constraintBottom_toTopOf="@id/input_layout"/>
+<LinearLayout
+android:id="@+id/input_layout"
+android:layout_width="match_parent"
+android:layout_height="wrap_content"
+android:orientation="horizontal"
+android:padding="8dp"
+app:layout_constraintBottom_toBottomOf="parent">
+<com.google.android.material.textfield.TextInputEditText
+android:id="@+id/et_input"
+android:layout_width="0dp"
+android:layout_height="wrap_content"
+android:layout_weight="1"
+android:hint="Posez votre question..."
+android:imeOptions="actionSend"
+android:inputType="textMultiLine"
+android:maxLines="3"/>
+<com.google.android.material.button.MaterialButton
+android:id="@+id/btn_send"
+android:layout_width="wrap_content"
+android:layout_height="wrap_content"
+android:layout_marginStart="8dp"
+android:text="Envoyer"/>
+</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
+```
 
-- Tableau 2.6 : Limites de la solution ML Kit GenAI
-
-- Tableau 2.7 : Résultats de référence sur appareils réels (llama.cpp, Gemma 2 2B Q4_K_M)
-
-- Tableau 2.8 : Résultats mesurés en conditions réelles (protocole interne, Llama 3.2 1B Q4_K_M)
-
-- Tableau 2.9 : Latence mesurée pour Gemma 4 E2B-it via AI Edge Gallery (Galaxy S26)
-
-- Tableau 2.10 : Comparaison llama.cpp vs AI Edge Gallery sur le même appareil (Galaxy S26)
-
-- Tableau 2.11 : Latence de l'API Gemini 2.0 Flash depuis le Galaxy S26
-
-- Tableau 2.12 : Synthèse on-device vs cloud (Galaxy S26, même prompt)
-
-- Tableau 2.13 : Comparaison llama.cpp vs MLC-LLM (Snapdragon 8 Gen 3)
-
-- Tableau 2.14 : Impact du format de quantification sur la qualité et la vitesse (Gemma 2 2B)
-
-- Tableau 2.15 : Consommation énergétique de référence (littérature)
-
-- Tableau 2.16 : Consommation énergétique mesurée (protocole interne, Llama 3.2 1B Q4_K_M)
-
-- Tableau 2.17 : Seuils d'acceptabilité perçue selon la vitesse de décodage
-
-- Tableau 2.18 : Comparaison des performances decode : UserLAnd vs Termux natif
-
-## Liste des figures
-
-- Figure 1.1 : Mécanisme de routage d'une architecture hybride edge + cloud.

@@ -26,7 +26,10 @@ from typing import Optional
 
 import psutil
 
-from utils import get_ram_usage_mb, get_system_ram_mb, save_metrics, InferenceMetrics
+from utils import (
+    get_ram_usage_mb, get_system_ram_mb, save_metrics, InferenceMetrics,
+    safe_cpu_percent,
+)
 
 # ── Prompts de benchmark ──────────────────────────────────────────────────────
 
@@ -93,7 +96,7 @@ def run_single_benchmark(
     prompt = prompt_info["prompt"]
 
     ram_before = get_ram_usage_mb()
-    cpu_start = psutil.cpu_percent(interval=0.5)
+    cpu_start = safe_cpu_percent(interval=0.5)
     t_start = time.time()
     first_token_time = None
     token_count = 0
@@ -114,7 +117,7 @@ def run_single_benchmark(
     print()
 
     ram_after = get_ram_usage_mb()
-    cpu_end = psutil.cpu_percent(interval=0.1)
+    cpu_end = safe_cpu_percent(interval=0.1)
 
     prefill_time = (first_token_time or t_start + 0.1) - t_start
     decode_time = t_end - (first_token_time or t_start + 0.1)

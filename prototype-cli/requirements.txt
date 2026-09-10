@@ -11,5 +11,6 @@ psutil>=5.9.0
 rich>=13.7.0
 prompt_toolkit>=3.0.43
 
-# Optionnel : export des résultats
-pandas>=2.0.0
+# Optionnel : export/analyse avancée des résultats JSON (non importé par le code actuel,
+# à installer séparément si besoin — pandas peut échouer à la compilation sous Termux) :
+# pandas>=2.0.0
