@@ -660,7 +660,7 @@ Un premier run, effectué après les douze questions précédentes dans la même
 
 ## Test 4 — Mesure de la latence de `llama.cpp` sur le Galaxy S26 Ultra (20/09/2026)
 
-**Objectif** : remplacer par une mesure la valeur « ~1,5 à 2 s » qui figurait dans le chapitre 2 (tableaux 2.10 et 2.12) et dans le chapitre 4 (section 4.1.7) pour la latence d'une réponse courte de `llama.cpp` sur le Galaxy S26 Ultra. Cette valeur n'était rattachée à aucune trace : la sortie de `benchmark_complet.sh` n'avait pas été conservée (aucun dossier `~/benchmark_results/` sur l'appareil) et le seul fichier retrouvé, `metrics.json`, ne contenait que des entrées du 30/08/2026 (la copie archivée ci-dessous ne conserve que les entrées du 20/09/2026).
+**Objectif** : remplacer par une mesure la valeur « ~1,5 à 2 s » qui figurait dans le chapitre 2 (tableaux 2.10 et 2.12) et dans le chapitre 4 (section 4.1.6) pour la latence d'une réponse courte de `llama.cpp` sur le Galaxy S26 Ultra. Cette valeur n'était rattachée à aucune trace : la sortie de `benchmark_complet.sh` n'avait pas été conservée (aucun dossier `~/benchmark_results/` sur l'appareil) et le seul fichier retrouvé, `metrics.json`, ne contenait que des entrées du 30/08/2026 (la copie archivée ci-dessous ne conserve que les entrées du 20/09/2026).
 
 **Conditions du test**
 
@@ -687,7 +687,7 @@ Le prompt fait 124 tokens dans les trois runs. Le chargement du modèle représe
 
 **Cohérence avec les autres entrées du fichier** : les trois premières entrées (06:35 à 06:37) sont des essais préliminaires. L'entrée 1 utilise le même prompt de 124 tokens (58 tokens générés, 3,01 s au total, décodage à 55,76 tok/s) et confirme l'ordre de grandeur. Les entrées 2 et 3 correspondent à d'autres tâches du prototype (prompts de 163 et 594 tokens, réponses de 27 et 18 tokens) : elles ne sont pas comparables (5,76 s au total pour l'entrée 3, dominé par un prefill de 4,2 s sur 594 tokens à 141 tok/s).
 
-**Conclusion** : la latence d'une réponse courte de `llama.cpp` sur le S26 Ultra est de **3,07 s en moyenne avec rechargement du modèle** (arrondie à « 3,1 s » dans le mémoire) et d'environ **2,0 s hors rechargement**. La valeur « ~1,5 à 2 s » n'était pas étayée et a été retirée. Conséquences appliquées dans le mémoire : tableaux 2.10 et 2.12 (chapitre 2), paragraphe « Protocole de la mesure llama.cpp » (section 3.4 du chapitre 2), section 4.1.7 du chapitre 4 (LiteRT environ 2 à 3 fois plus lent en latence totale au lieu de 4 fois), et paragraphe de test complémentaire en section 3.8 du chapitre 3.
+**Conclusion** : la latence d'une réponse courte de `llama.cpp` sur le S26 Ultra est de **3,07 s en moyenne avec rechargement du modèle** (arrondie à « 3,1 s » dans le mémoire) et d'environ **2,0 s hors rechargement**. La valeur « ~1,5 à 2 s » n'était pas étayée et a été retirée. Conséquences appliquées dans le mémoire : tableaux 2.10 et 2.12 (chapitre 2), paragraphe « Protocole de la mesure llama.cpp » (section 3.4 du chapitre 2), section 4.1.6 du chapitre 4 (LiteRT environ 2 à 3 fois plus lent en latence totale au lieu de 4 fois), et paragraphe de test complémentaire en section 3.8 du chapitre 3.
 
 **Réserve** : ce test compare deux modèles de tailles différentes (Llama 3.2 1B pour `llama.cpp`, Gemma 4 E2B d'environ 2B paramètres pour LiteRT) ; l'écart de latence ne peut donc pas être attribué au seul framework.
 
