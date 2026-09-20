@@ -189,9 +189,12 @@ L'architecture la plus pragmatique n'est ni entièrement locale ni entièrement 
 
 ```{=latex}
 \begin{center}
-\includegraphics[width=0.72\textwidth]{media/figure_4_3_1.pdf}
+\includegraphics[width=0.92\textwidth]{media/figure_4_3_1_v2.pdf}
 \end{center}
+\nopagebreak[4]
 ```
+
+**Figure 4.1 :** Principe « Local by default, Cloud by exception » : routage d'une requête entre traitement local et cloud.
 
 **Critères de routage suggérés :**
 
