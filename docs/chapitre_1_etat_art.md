@@ -4,7 +4,7 @@
 
 L'essor des grands modèles de langage (LLMs) depuis la publication de GPT-3 par Brown et al. [1] a ouvert une problématique centrale : comment déployer ces systèmes aux capacités remarquables sur des dispositifs à ressources limitées ? Alors que GPT-3 mobilise 175 milliards de paramètres et nécessite plusieurs centaines de gigaoctets de mémoire GPU, la recherche s'est orientée vers des modèles compacts capables de s'exécuter directement sur smartphones, sans dépendance permanente au cloud, un paradigme désigné par l'expression *inférence embarquée* (*on-device inference*).
 
-Cette tendance répond à des enjeux concrets. Selon GSMA Intelligence [2], on compte en 2024 plus de 5,6 milliards d'abonnés mobiles uniques dans le monde (69 % de la population mondiale). Le smartphone est aujourd'hui le premier dispositif d'accès à l'information numérique, y compris dans des zones à connectivité intermittente. L'inférence de LLMs directement sur ces appareils est devenue techniquement viable depuis 2023 grâce à la convergence de trois facteurs : la miniaturisation des modèles (distillation, quantification), l'amélioration des SoCs mobiles (NPU/DSP), et le développement de frameworks d'inférence optimisés.
+Cette tendance répond à des enjeux concrets. Selon GSMA Intelligence [2], on comptait fin 2023 plus de 5,6 milliards d'abonnés mobiles uniques dans le monde (69 % de la population mondiale), chiffre le plus récent rapporté dans l'édition 2024 du *Mobile Economy Report*. Le smartphone est aujourd'hui le premier dispositif d'accès à l'information numérique, y compris dans des zones à connectivité intermittente. L'inférence de LLMs directement sur ces appareils est devenue techniquement viable depuis 2023 grâce à la convergence de trois facteurs : la miniaturisation des modèles (distillation, quantification), l'amélioration des SoCs mobiles (NPU/DSP), et le développement de frameworks d'inférence optimisés.
 
 Concrètement, il s'agit de permettre des interactions en temps réel, sans connexion réseau et sans envoi de données à un serveur distant, sur des appareils dont la RAM dépasse rarement 12 Go et dont la puissance de calcul ne représente qu'une fraction de celle d'un GPU de datacenter. Ce chapitre présente les solutions disponibles en 2024-2026, compare leurs performances, et analyse les différences architecturales entre exécution locale et architectures hybrides edge + cloud. Ces éléments servent de base au protocole expérimental détaillé au chapitre 2.
 
@@ -85,8 +85,6 @@ ML Kit GenAI (AICore) \[12, 13\], introduit par Google en 2024, est l'API offici
 
 LiteRT, anciennement TensorFlow Lite, est le runtime d'inférence Google pour modèles .tflite ; en 2024, Google a migré TFLite vers LiteRT et ajouté le support LLM via le framework AI Edge LLM Inference. Ce framework supporte NPU et GPU et est utilisé par Google AI Edge Gallery pour Gemma 4 Edge. Il est plus portable que ML Kit GenAI, mais nécessite un format de conversion non trivial depuis GGUF. MediaPipe LLM Inference API [14] offre une alternative plus flexible reposant sur le même runtime : elle supporte Gemma, Phi-2 et Falcon 1B via un pipeline unifié, sans exiger d'appareil certifié. MLC-LLM [15], du groupe MLC AI, utilise Apache TVM pour compiler des modèles directement en code GPU/NPU optimisé ; c'est le seul framework open source à exploiter réellement les GPU Mali via Vulkan, 20 à 25 % plus rapide que llama.cpp sur Snapdragon 8 Gen 3 et Dimensity 9300, au prix d'une compilation par cible matérielle et d'un écosystème de modèles plus restreint que GGUF.
 
-\newpage
-
 | **Critère**    | **llama.cpp**  | **MLC-LLM**        | **ML Kit GenAI**    | **MediaPipe LLM**    |
 | --- | --- | --- | --- | --- |
 | Modèles        | GGUF universel | TVM compilé        | Gemini Nano seul    | Gemma, Phi-2, Falcon |
@@ -154,66 +152,3 @@ Des travaux académiques (Yin et al. [25]) proposent par ailleurs de déporter l
 L'exécution de LLMs sur smartphone est passée, en moins de trois ans, du statut de curiosité technique à celui de réalité déployée sur des centaines de millions d'appareils via Galaxy AI et Apple Intelligence. Les avancées en quantification, en distillation et en architectures compactes ont rendu l'exécution locale viable ; les SoCs modernes offrent une puissance suffisante pour des modèles de 1 à 4B paramètres, confirmée par la littérature comme par les mesures propres de ce PIR.
 
 Deux approches structurent aujourd'hui ce paysage. D'un côté, l'approche propriétaire (Google AICore et Gemini Nano, Apple Intelligence) exploite des NPU dédiés, au prix d'une dépendance matérielle stricte limitée à environ 5 % du parc Android mondial. De l'autre, l'écosystème open source (llama.cpp, MLC-LLM, Gemma) offre une flexibilité maximale sur tout appareil ARM64, mais avec des performances brutes inférieures sur les appareils compatibles NPU. Gemini Flash et Flash-Lite couvrent le segment hybride à haute capacité : une troisième voie où le choix ne se pose plus entre local et cloud, mais dans l'orchestration des deux. Cette tension entre flexibilité universelle et performance optimisée sur un parc restreint, ainsi que la troisième voie hybride, oriente les choix méthodologiques du chapitre suivant, consacré au déploiement effectif et à la mesure des performances sur des appareils réels.
-
-## Références
-
-**[1]** T. Brown, B. Mann, N. Ryder, et al., *Language Models are Few-Shot Learners*, NeurIPS 33, 2020. arXiv:2005.14165.
-
-**[2]** GSMA Intelligence, *The Mobile Economy 2024*, GSMA, London, 2024.
-
-**[3]** T. Dettmers, M. Lewis, Y. Belkada, L. Zettlemoyer, *LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale*, NeurIPS 2022. arXiv:2208.07339.
-
-**[4]** E. Frantar, S. Ashkboos, T. Hoefler, D. Alistarh, *GPTQ: Accurate Post-Training Quantization for GPTs*, 2022. arXiv:2210.17323.
-
-**[5]** llama.cpp Contributors, *GGUF Format Specification*, GitHub, ggml-org/ggml, 2023.
-
-**[6]** T. Dettmers, A. Pagnoni, A. Holtzman, L. Zettlemoyer, *QLoRA: Efficient Finetuning of Quantized LLMs*, NeurIPS 2023. arXiv:2305.14314.
-
-**[7]** G. Hinton, O. Vinyals, J. Dean, *Distilling the Knowledge in a Neural Network*, NIPS Workshop, 2015. arXiv:1503.02531.
-
-**[8]** G. Gerganov, *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*, GitHub, 2023.
-
-**[9]** Google DeepMind, *Gemini: A Family of Highly Capable Multimodal Models*, 2023. arXiv:2312.11805.
-
-**[10]** Google DeepMind, *Gemma: Open Models Based on Gemini Research and Technology*, 2024. arXiv:2403.08295.
-
-**[11]** Google DeepMind, *Gemini 2.0 Flash and Flash-Lite: Fast, Efficient Models for Developers*, 2025. ai.google.dev/gemini-api/docs/models.
-
-**[12]** Google, *ML Kit GenAI APIs*, 2024. developers.google.com/ml-kit/genai.
-
-**[13]** Google, *Android AICore*, 2024. developer.android.com/ml/aicore.
-
-**[14]** Google MediaPipe, *LLM Inference Guide for Android, MediaPipe Solutions*, 2024. ai.google.dev/edge/mediapipe.
-
-**[15]** MLC AI Contributors, *MLC-LLM: Bring Large Language Models Everywhere*, GitHub, mlc-ai/mlc-llm, 2023.
-
-**[16]** Meta AI, *The Llama 3 Herd of Models*, 2024. arXiv:2407.21783.
-
-**[17]** Z. Liu, C. Zhao, F. Iandola, et al., *MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases*, ICML 2024. arXiv:2402.14905.
-
-**[18]** M. Abdin, et al., *Phi-3 Technical Report: A Highly Capable Language Model Locally on Your Phone*, Microsoft Research, 2024. arXiv:2404.14219.
-
-**[19]** Apple ML Research, *Apple Intelligence Foundation Language Models*, 2024. arXiv:2507.13575.
-
-**[20]** Z. Xue, Y. Wei, R. Chen, et al., *PowerInfer-2: Fast Large Language Model Inference on a Smartphone*, MobiCom 2024. arXiv:2406.06282.
-
-**[21]** Qualcomm Technologies Inc., *Snapdragon 8 Gen 3 Mobile Platform*, Technical Overview, 2024.
-
-**[22]** D. Xu, et al., *Understanding LLMs Running on Consumer Devices (Understanding LLMs in Your Pockets)*, 2024. arXiv:2410.03613.
-
-**[23]** H. Fassold, *Porting LLMs to Mobile Devices for Question Answering*, IEEE/CVF CVPR Workshops, 2024.
-
-**[25]** W. Yin, M. Xu, Y. Li, *LLM as a System Service on Mobile Devices*, 2024. arXiv:2403.11805.
-
-**[26]** Q. Ye, Z. Li, W. Feng, M. Guizani, H. Yu, *Prima.cpp: Speeding Up 70B-Scale LLM Inference on Low-Resource Everyday Home Clusters*, 2025. arXiv:2504.08791.
-
-**[27]** Li et al., *PalmBench: A Comprehensive Benchmark of Compressed Large Language Models on Mobile Platforms*, 2024. arXiv:2410.05315.
-
-**[28]** Murthy et al., *MobileAIBench: Benchmarking LLMs and LMMs for On-Device Use Cases*, NeurIPS 2024. arXiv:2406.10290.
-
-**[29]** Song et al., *A Systematic Evaluation of On-Device LLMs: Quantization, Performance, and Resources*, 2025. arXiv:2505.15030.
-
-**[30]** Tummalapalli et al., *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*, 2026. arXiv:2603.23640.
-
-**[31]** M. Yadav, P. Bhargavi, *Optimizing LLMs Using Quantization For Mobile Execution*, ICT4SD 2025, Springer LNNS. arXiv:2512.06490.
-

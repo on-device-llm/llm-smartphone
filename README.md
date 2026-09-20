@@ -13,8 +13,14 @@ llm-smartphone/
 │   ├── chapitre_1_etat_art.md          # Chapitre 1 — État de l'art
 │   ├── chapitre_2_mise_en_oeuvre.md    # Chapitre 2 — Mise en œuvre : déploiement et analyse des performances
 │   ├── chapitre_3_prototype.md         # Chapitre 3 — Prototype minimal de chatbot embarqué
-│   ├── annexe_chapitre2.md             # Annexes du chapitre 2 (configuration Android, etc.)
-│   └── annexe_chapitre3.md             # Annexes du chapitre 3 (code source complet du prototype CLI)
+│   ├── chapitre_4_retour_critique.md   # Chapitre 4 — Retour critique
+│   ├── chapitre_*.pdf                  # Versions PDF des chapitres 1 à 4
+│   ├── annexe_chapitre2.md             # Annexes du chapitre 2 (extraits ; code complet dans prototype-android/)
+│   ├── annexe_chapitre3.md             # Annexes du chapitre 3 (extraits ; code complet dans prototype-cli/)
+│   ├── journal_validation_prototype.md # Journal de validation du prototype (.pdf inclus)
+│   └── protocole_validation_chatbot.md # Protocole de validation du chatbot (.pdf inclus)
+├── results/
+│   └── metrics_s26_2026-09-20.json     # Métriques brutes du test du 20/09/2026 (Galaxy S26 Ultra, Llama 3.2 1B Q4_K_M)
 ├── prototype-cli/
 │   ├── chatbot.py                   # Chatbot CLI interactif (pilotage de llama-cli en sous-processus)
 │   ├── benchmark.py                 # Script de mesure latence/mémoire
@@ -33,7 +39,7 @@ llm-smartphone/
     └── build-apk.yml                # Build manuel de l'APK (déclenchement via workflow_dispatch)
 ```
 
-> Le chapitre 4 (retour critique) et le reste des livrables (page de garde, résumé, bibliographie, etc.) seront ajoutés au dépôt dans une prochaine mise à jour.
+> Le reste des livrables (page de garde, résumé, bibliographie, etc.) figure dans le mémoire complet et n'est pas reproduit dans ce dépôt.
 
 ---
 
@@ -93,8 +99,10 @@ Voir `docs/chapitre_2_mise_en_oeuvre.md` pour le tutoriel complet pas-à-pas, et
 
 ## Livrables du PFE
 
-- `docs/chapitre_1_etat_art.md`, `docs/chapitre_2_mise_en_oeuvre.md`, `docs/chapitre_3_prototype.md` — chapitres 1 à 3 du mémoire (version du 23/08)
-- `docs/annexe_chapitre2.md`, `docs/annexe_chapitre3.md` — annexes correspondantes (code source complet, configuration)
+- `docs/chapitre_1_etat_art.md` à `docs/chapitre_4_retour_critique.md` (et PDF) — chapitres 1 à 4 du mémoire (version du 20/09)
+- `docs/annexe_chapitre2.md`, `docs/annexe_chapitre3.md` — annexes correspondantes (extraits ; le code complet est dans `prototype-android/` et `prototype-cli/`)
+- `docs/journal_validation_prototype.md`, `docs/protocole_validation_chatbot.md` — journal et protocole de validation
+- `results/` — métriques brutes archivées
 - Ce dépôt Git — code + tutoriels reproductibles
 
 ---

@@ -182,7 +182,7 @@ cd ~/llama.cpp
 
 Au-delà du fonctionnement qualitatif, il est essentiel de mesurer objectivement le débit d'inférence et la consommation mémoire de l'appareil. llama.cpp fournit un outil de benchmark intégré permettant de quantifier séparément la phase de **prefill** (traitement du prompt) et la phase de **decode** (génération token par token).
 
-L'outil llama-bench exécute une série de mesures répétées (-r 3) sur un prompt de 512 tokens en prefill et 128 tokens en decode, puis calcule une moyenne représentative en atténuant le bruit lié aux variations ponctuelles de charge système. Ces deux métriques sont complémentaires : le prefill reflète la puissance de calcul brute (compute-bound), tandis que le decode est davantage limité par la bande passante mémoire (memory-bound). Sur un Snapdragon 8 Gen 3, les valeurs obtenues se situent typiquement entre 25 et 35 tokens/s en prefill et entre 12 et 18 tokens/s en decode :
+L'outil llama-bench exécute une série de mesures répétées (-r 5) sur un prompt de 512 tokens en prefill et 128 tokens en decode, puis calcule une moyenne représentative en atténuant le bruit lié aux variations ponctuelles de charge système. Ces deux métriques sont complémentaires : le prefill reflète la puissance de calcul brute (compute-bound), tandis que le decode est davantage limité par la bande passante mémoire (memory-bound). Sur un Snapdragon 8 Gen 3, les valeurs obtenues se situent typiquement entre 25 et 35 tokens/s en prefill et entre 12 et 18 tokens/s en decode :
 
 ```
 # Benchmark intégré llama.cpp
@@ -195,7 +195,7 @@ L'outil llama-bench exécute une série de mesures répétées (-r 3) sur un pro
 
 -n 128 \
 
--r 3
+-r 5
 
 # Résultat attendu sur Snapdragon 8 Gen 3 :
 
@@ -284,7 +284,7 @@ cmake --build build --config Release -j$(sysctl -n hw.logicalcpu)
 
 ### 1.3 Installation Python (llama-cpp-python)
 
-Le prototype de chatbot présenté au chapitre 3 s'appuie sur les bindings Python de llama.cpp plutôt que sur le binaire en ligne de commande, afin de faciliter l'intégration dans une interface applicative. Ces bindings exposent l'ensemble des fonctionnalités du moteur C++ sous-jacent via une API Python simple, tout en conservant les performances natives de la bibliothèque.
+Dans le prototype présenté au chapitre 3, seul le module de benchmark (benchmark.py) s'appuie sur les bindings Python de llama.cpp ; le chatbot interactif (chatbot.py) pilote quant à lui directement le binaire en ligne de commande llama-cli en sous-processus, afin de contourner un problème de compatibilité de ces bindings sous Termux (chapitre 3, section 3.2.1). Ces bindings exposent l'ensemble des fonctionnalités du moteur C++ sous-jacent via une API Python simple, tout en conservant les performances natives de la bibliothèque.
 
 L'installation standard fonctionne sur toute plateforme mais reste limitée au CPU. Sur Mac Apple Silicon, la variable d'environnement CMAKE_ARGS permet de recompiler les bindings avec le support Metal au moment de l'installation ; de façon similaire, un GPU Nvidia sous Linux peut être exploité en activant le support CUDA. Le choix de la variante d'installation dépend donc uniquement du matériel de développement disponible, sans impact sur l'API Python exposée ensuite :
 
@@ -408,7 +408,7 @@ implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 }
 ```
 
-Le fichier build.gradle.kts complet est fourni en Annexe A.
+Un extrait du fichier build.gradle.kts est fourni en Annexe A ; le fichier complet est disponible sur le dépôt GitHub du projet.
 
 ##### 2.2.3 Configurer AndroidManifest.xml
 
@@ -420,7 +420,7 @@ Le manifeste Android déclare les permissions et métadonnées requises par ML K
 <meta-data android:name="com.google.mlkit.genai.ENABLED" android:value="true" />
 ```
 
-Le manifeste complet, incluant la déclaration de l'activité principale et la bibliothèque adservices, est fourni en Annexe B.
+Un extrait du manifeste est fourni en Annexe B ; le fichier complet est disponible sur le dépôt GitHub du projet.
 
 ### 2.3 Code Kotlin : Inférence avec ML Kit GenAI
 
@@ -450,7 +450,7 @@ val latency = System.currentTimeMillis() - startTime
 )
 ```
 
-Le code source complet du ViewModel (gestion de l'état, historique de conversation, construction du prompt) est fourni en Annexe C.
+Un extrait du ViewModel est fourni en Annexe C ; le code source complet (gestion de l'état, historique de conversation, construction du prompt) est disponible sur le dépôt GitHub du projet.
 
 #### 2.3.2 MainActivity
 
@@ -472,13 +472,13 @@ viewModel.initializeModel()
 }
 ```
 
-Le code source complet de MainActivity (gestion du RecyclerView, de la saisie et des transitions d'état) est fourni en Annexe D.
+Un extrait de MainActivity est fourni en Annexe D ; le code source complet (gestion du RecyclerView, de la saisie et des transitions d'état) est disponible sur le dépôt GitHub du projet.
 
 #### 2.3.3 Layout XML (activity_main.xml)
 
 Le fichier de layout définit la structure visuelle de l'écran de conversation à l'aide d'un ConstraintLayout, qui permet de positionner les éléments les uns par rapport aux autres sans imbrication excessive de vues. Cette structure reste volontairement minimale afin de concentrer l'analyse de ce PIR sur la logique d'inférence plutôt que sur le raffinement de l'interface graphique.
 
-L'interface repose sur un ConstraintLayout simple : une zone de statut en haut, une liste défilante des messages (RecyclerView) au centre, et une barre de saisie avec bouton d'envoi en bas. Le layout XML complet est fourni en Annexe E.
+L'interface repose sur un ConstraintLayout simple : une zone de statut en haut, une liste défilante des messages (RecyclerView) au centre, et une barre de saisie avec bouton d'envoi en bas. Un extrait du layout XML est fourni en Annexe E ; le fichier complet est disponible sur le dépôt GitHub du projet.
 
 ### 2.4 Cas d'usage avancés : Summarization et Proofreading
 
@@ -546,19 +546,21 @@ Toutes les mesures suivent le protocole défini par Xu et al. [22] et le profile
 - **RAM delta** : mémoire supplémentaire consommée après chargement du modèle
 ```
 
-Le script benchmark.py automatise l'exécution répétée du protocole de mesure (cinq répétitions par défaut) afin de lisser la variance liée aux conditions d'exécution ponctuelles (charge système, throttling transitoire). Il enregistre pour chaque exécution le débit de prefill, le débit de decode, la consommation mémoire et l'évolution de la température, puis calcule une moyenne et un écart-type pour chaque métrique. Ce script constitue l'outil central utilisé pour produire l'ensemble des tableaux de résultats présentés dans cette partie :
+Les mesures de ce chapitre ont été produites par deux scripts shell du dépôt du projet, qui s'appuient sur l'outil llama-bench de llama.cpp. Le script benchmark_complet.sh exécute llama-bench avec 512 tokens en prefill, 128 tokens en decode et cinq répétitions (-r 5), puis en extrait la moyenne et l'écart-type de chaque phase, la variation de RAM (RAM delta) et la variation de batterie avant/après. Le script throttling_rigoureux.sh mesure le throttling selon un protocole en cinq étapes : run de warm-up (pour neutraliser la montée en fréquence du governor schedutil), baseline de decode, charge continue de 5 minutes en boucle llama-bench à contexte fixe, mesure post-charge, puis dégradation calculée par (baseline − post-charge) / baseline × 100. Aucune température n'est relevée : le throttling thermique est déduit de la variation du débit. Le module benchmark.py du prototype (chapitre 3, section 3.5) est un outil distinct, propre au prototype applicatif, qui n'a pas servi à produire les tableaux de ce chapitre :
 
 ```
-# Lancer le benchmark complet
+# Benchmark complet (latence, RAM, batterie)
 
-python benchmark.py --model models/gemma-2-2b-it-q4_k_m.gguf --runs 5
+bash benchmark_complet.sh ~/models/Llama-3.2-1B-Instruct-Q4_K_M.gguf nom_appareil
+
+# Test de throttling rigoureux (warm-up + 5 min de charge)
+
+bash throttling_rigoureux.sh ~/models/Llama-3.2-1B-Instruct-Q4_K_M.gguf nom_appareil
 ```
 
 ### 3.2 Résultats de référence sur appareils réels (llama.cpp, Gemma 2 2B Q4_K_M)
 
 Cette section présente les premières mesures obtenues avec llama.cpp sur cinq appareils représentatifs de gammes différentes, du flagship récent à l'entrée de gamme. Le modèle utilisé, Gemma 2 2B en quantification Q4_K_M, sert de référence commune pour comparer les SoC entre eux.
-
-\newpage
 
 | **SoC**            | **Appareil**  | **Prefill** | **Decode**  | **RAM delta** | **Throttling 5 min** |
 | --- | --- | --- | --- | --- | --- |
@@ -635,14 +637,16 @@ Débit estimé : ~70 tokens (3 phrases) → **≈ 11–12 tok/s**.
 | **Critère**            | **llama.cpp (Llama 3.2 1B Q4_K_M)** | **AI Edge Gallery (Gemma 4 E2B LiteRT)** |
 | --- | --- | --- |
 | Modèle                 | 1B paramètres, ~800 Mo               | 2B paramètres, 2,6 Go                    |
-| Decode (tok/s)         | 46,68 ± 14,40 tok/s                   | ~11–12 tok/s (estimé)                   |
-| Latence réponse courte | ~1,5–2 s                             | ~6,0 s                                  |
+| Decode (tok/s)         | 46,68 ± 14,40 tok/s (llama-bench) ; 55,4 tok/s (prototype, 3 runs)                   | ~11–12 tok/s (estimé)                   |
+| Latence réponse courte | 3,1 s en moyenne (2,7 à 3,3 s, 3 runs), dont ~1,0 s de rechargement du modèle ; ~2,0 s hors chargement                             | ~6,0 s                                  |
 | Throttling             | −17,3 % (thermique réel)              | non mesuré                               |
 | Installation           | Termux + wget (~10 min)              | Play Store + téléch. 2,6 Go              |
 
 **Tableau 2.10 :** Comparaison llama.cpp vs AI Edge Gallery sur le même appareil (Galaxy S26)
 
-**Interprétation** : la latence supérieure du modèle LiteRT s'explique par la taille du modèle (2B vs 1B), le format d'inférence (LiteRT CPU vs llama.cpp CPU avec optimisations BLAS), et l'absence d'accélération NPU sur ce chemin. À modèle équivalent (1B), llama.cpp est environ 3 à 4 fois plus rapide sur le même SoC.
+**Interprétation** : la latence supérieure du modèle LiteRT s'explique par la taille du modèle (2B vs 1B), le format d'inférence (LiteRT CPU vs llama.cpp CPU avec optimisations BLAS), et l'absence d'accélération NPU sur ce chemin. Dans nos conditions, llama.cpp (Llama 3.2 1B) est environ 2 fois plus rapide en latence totale (3,1 s contre 6,0 s), et environ 3 fois hors rechargement du modèle (2,0 s), que LiteRT (Gemma 4 E2B, ~2B) sur le même SoC ; cet écart compare deux modèles de tailles différentes et ne peut donc pas être attribué au seul framework. De plus, le débit LiteRT (~11-12 tok/s) est une estimation calculée sur la latence totale (~70 tokens en 6,0 s, prefill et démarrage inclus), alors que celui de llama.cpp est un débit de decode mesuré : les deux valeurs ne sont pas strictement comparables.
+
+**Protocole de la mesure llama.cpp** : prototype `chatbot.py` (chapitre 3), Termux natif, Llama 3.2 1B Q4_K_M, build `b10154-0e4a03622`, session neuve à chaque run (contexte vide), même prompt que pour LiteRT, 3 runs : 3,1 s, 3,3 s et 2,7 s (moyenne 3,1 s) ; decode de 55,3 à 55,4 tok/s ; prefill de 216 à 218 tok/s. Cette latence inclut le rechargement du modèle à chaque tour de parole (~1,0 s), propre à l'architecture du prototype (chapitre 3, section 3.2.1) ; hors rechargement, elle est d'environ 2,0 s.
 
 ### 3.5 Benchmark Gemini 2.0 Flash API (cloud) vs on-device
 
@@ -659,17 +663,15 @@ Mesure de la latence de l'API cloud Gemini 2.0 Flash depuis Termux sur le Galaxy
 
 **Tableau 2.11 :** Latence de l'API Gemini 2.0 Flash depuis le Galaxy S26
 
-**Tableau de synthèse : on-device vs cloud (Galaxy S26, même prompt)**
-
 | **Solution**             | **Type**  | **Modèle**              | **Latence (réponse courte)** |
 | --- | --- | --- | --- |
-| llama.cpp (Termux)       | On-device | Llama 3.2 1B Q4_K_M   | ~1,5–2,0 s                  |
+| llama.cpp (Termux)       | On-device | Llama 3.2 1B Q4_K_M   | ~3,1 s (~2,0 s hors rechargement)                  |
 | AI Edge Gallery          | On-device | Gemma 4 E2B LiteRT INT4 | ~6,0 s (moy.)               |
 | **Gemini 2.0 Flash API** | **Cloud** | **gemini-2.0-flash**    | **0,29 s (warm)**            |
 
 **Tableau 2.12 :** Synthèse on-device vs cloud (Galaxy S26, même prompt)
 
-L'API cloud est **~20× plus rapide** que la solution LiteRT et **~5–7× plus rapide** que llama.cpp sur ce même appareil. Ce résultat résume le compromis de l'inférence embarquée : latence cloud minimale mais dépendance réseau et transmission des données à des serveurs externes ; on-device plus lent mais confidentialité totale et fonctionnement hors ligne.
+L'API cloud est **~20× plus rapide** que la solution LiteRT et **~7× (hors rechargement du modèle) à ~10× (avec rechargement) plus rapide** que llama.cpp sur ce même appareil. Ce résultat résume le compromis de l'inférence embarquée : latence cloud minimale mais dépendance réseau et transmission des données à des serveurs externes ; on-device plus lent mais confidentialité totale et fonctionnement hors ligne.
 
 ### 3.6 Comparaison llama.cpp vs MLC-LLM (Snapdragon 8 Gen 3)
 
@@ -821,376 +823,98 @@ Les résultats confirment que l'inférence LLM on-device est **techniquement via
 
 Ces résultats montrent que le LLM embarqué est une alternative crédible aux API cloud pour des usages conversationnels légers sur un smartphone récent milieu de gamme, sans dépendance réseau et avec une confidentialité totale des données.
 
-## Références
-
-```
-- [1] Brown, T., Mann, B., Ryder, N., et al. (2020). *Language Models are Few-Shot Learners*. NeurIPS 33. arXiv:2005.14165.
-
-- [2] GSMA Intelligence (2024). *The Mobile Economy 2024*. GSMA, London.
-
-- [3] Dettmers, T., Lewis, M., Belkada, Y., & Zettlemoyer, L. (2022). *LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale*. NeurIPS 2022. arXiv:2208.07339.
-
-- [4] Frantar, E., Ashkboos, S., Hoefler, T., & Alistarh, D. (2022). *GPTQ: Accurate Post-Training Quantization for GPTs*. arXiv:2210.17323.
-
-- [5] llama.cpp Contributors (2023). *GGUF Format Specification*. GitHub, ggml-org/ggml.
-
-- [6] Dettmers, T., Pagnoni, A., Holtzman, A., & Zettlemoyer, L. (2023). *QLoRA: Efficient Finetuning of Quantized LLMs*. NeurIPS 2023. arXiv:2305.14314.
-
-- [7] Hinton, G., Vinyals, O., & Dean, J. (2015). *Distilling the Knowledge in a Neural Network*. NIPS Workshop. arXiv:1503.02531.
-
-- [8] Gerganov, G. (2023). *llama.cpp: Inference of Meta's LLaMA model in pure C/C++*. GitHub.
-
-- [9] Google DeepMind (2023). *Gemini: A Family of Highly Capable Multimodal Models*. arXiv:2312.11805.
-
-- [10] Google DeepMind (2024). *Gemma: Open Models Based on Gemini Research and Technology*. arXiv:2403.08295.
-
-- [11] Google DeepMind (2025). *Gemini 2.0 Flash and Flash-Lite: Fast, Efficient Models for Developers*. ai.google.dev/gemini-api/docs/models.
-
-- [12] Google (2024). *ML Kit GenAI APIs*. developers.google.com/ml-kit/genai.
-
-- [13] Google (2024). *Android AICore*. developer.android.com/ml/aicore.
-
-- [14] Google MediaPipe (2024). *LLM Inference Guide for Android, MediaPipe Solutions*. ai.google.dev/edge/mediapipe.
-
-- [15] MLC AI Contributors (2023). *MLC-LLM: Bring Large Language Models Everywhere*. GitHub, mlc-ai/mlc-llm.
-
-- [16] Meta AI (2024). *The Llama 3 Herd of Models*. arXiv:2407.21783.
-```
-
-  - [17] Liu, Z., Zhao, C., Iandola, F., et al. (2024). *MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases*. ICML 2024. arXiv:2402.14905.
-
-  - [18] Abdin, M., et al. (2024). *Phi-3 Technical Report: A Highly Capable Language Model Locally on Your Phone*. Microsoft Research. arXiv:2404.14219.
-
-```
-- [19] Apple ML Research (2024). *Apple Intelligence Foundation Language Models*. arXiv:2507.13575.
-```
-
-  - [20] Xue, Z., Wei, Y., Chen, R., et al. (2024). *PowerInfer-2: Fast Large Language Model Inference on a Smartphone*. MobiCom 2024 / arXiv:2406.06282.
-
-```
-- [21] Qualcomm Technologies Inc. (2024). *Snapdragon 8 Gen 3 Mobile Platform*. Technical Overview.
-```
-
-  - [22] Xu, D., et al. (2024). *Understanding LLMs Running on Consumer Devices (Understanding LLMs in Your Pockets)*. arXiv:2410.03613.
-
-```
-- [23] Fassold, H. (2024). *Porting LLMs to Mobile Devices for Question Answering*. IEEE/CVF CVPR Workshops 2024.
-```
-
-  - [24] Xu, D., et al. (2024). *lm-Meter: Unveiling Runtime Inference Latency for On-Device Language Models*. arXiv:2510.06126.
-
-```
-- [25] Yin, W., Xu, M., & Li, Y. (2024). *LLM as a System Service on Mobile Devices*. arXiv:2403.11805.
-
-- [26] Ye, Q., Li, Z., Feng, W., Guizani, M., & Yu, H. (2025). *Prima.cpp: Speeding Up 70B-Scale LLM Inference on Low-Resource Everyday Home Clusters*. arXiv:2504.08791.
-```
-
-  - [27] Li et al. (2024). *PalmBench: A Comprehensive Benchmark of Compressed Large Language Models on Mobile Platforms*. arXiv:2410.05315.
-
-  - [28] Murthy et al. (2024). *MobileAIBench: Benchmarking LLMs and LMMs for On-Device Use Cases*. NeurIPS 2024. arXiv:2406.10290.
-
-  - [29] Song et al. (2025). *A Systematic Evaluation of On-Device LLMs: Quantization, Performance, and Resources*. arXiv:2505.15030.
-
-```
-- [30] Tummalapalli et al. (2026). *LLM Inference at the Edge: Mobile, NPU, and GPU Performance Efficiency Trade-offs Under Sustained Load*. arXiv:2603.23640.
-
-- [31] Yadav, M. & Bhargavi, P. (2024). *Optimizing LLMs Using Quantization For Mobile Execution*. ICT4SD 2025, Springer LNNS. arXiv:2512.06490.
-```
-
 ## Annexes
 
-**Annexe A : Configuration Gradle du projet Android (**build.gradle.kts**)**
+**Annexes A à E : Code source de l'application Android (ML Kit GenAI / Gemini Nano)**
+
+Le code source complet de l'application de démonstration décrite dans la partie 2 de ce chapitre (sections 2.2 et 2.3) est publié sur le dépôt public du projet, qui constitue la référence à jour et compilable :
 
 ```
-// build.gradle.kts (module app)
+git clone https://github.com/on-device-llm/llm-smartphone
+```
+
+Ce dépôt est privilégié ici à une reproduction intégrale du code, dont la lecture sur papier n'apporte pas de valeur supplémentaire et qui deviendrait obsolète à chaque évolution des bibliothèques ML Kit GenAI (encore en version bêta). Seuls quelques extraits significatifs sont conservés dans les annexes ci-dessous ; les fichiers concernés se trouvent dans le répertoire `prototype-android/` du dépôt :
+
+- `prototype-android/app/build.gradle.kts` (section 2.2.2, Annexe A) : configuration du module, SDK minimum et dépendances ML Kit GenAI.
+- `prototype-android/app/src/main/AndroidManifest.xml` (section 2.2.2, Annexe B) : permissions et déclaration de l'activité principale.
+- `prototype-android/app/src/main/java/com/pfe/llmchat/LlmViewModel.kt` (section 2.3.1, Annexe C) : gestion de l'état d'inférence, historique de conversation et construction du prompt.
+- `prototype-android/app/src/main/java/com/pfe/llmchat/MainActivity.kt` (section 2.3.2, Annexe D) : liaison de l'interface, saisie et observation de l'état.
+- `prototype-android/app/src/main/res/layout/activity_main.xml` (section 2.3.3, Annexe E) : disposition de l'écran de conversation.
+
+**Annexe A : Configuration Gradle du projet Android** (`build.gradle.kts`, extrait)
+
+```
 android {
-compileSdk = 35
-defaultConfig {
-minSdk = 29
-targetSdk = 35
-}
-buildFeatures {
-viewBinding = true
-}
-compileOptions {
-sourceCompatibility = JavaVersion.VERSION_17
-targetCompatibility = JavaVersion.VERSION_17
-}
-kotlinOptions {
-jvmTarget = "17"
-}
+    compileSdk = 35
+    defaultConfig {
+        minSdk = 29
+        targetSdk = 35
+    }
 }
 dependencies {
-// ML Kit GenAI — Summarization, Proofreading, Free-form inference
-implementation("com.google.mlkit:genai-common:1.0.0-beta1")
-implementation("com.google.mlkit:genai-inference:1.0.0-beta1")
-// Coroutines pour l'inférence asynchrone
-implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
-implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-// UI
-implementation("androidx.recyclerview:recyclerview:1.3.2")
-implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-implementation("com.google.android.material:material:1.11.0")
+    implementation("com.google.mlkit:genai-common:1.0.0-beta1")
+    implementation("com.google.mlkit:genai-inference:1.0.0-beta1")
+    // [...] coroutines, lifecycle, RecyclerView, Material
 }
 ```
 
-**Annexe B : Manifeste Android (**AndroidManifest.xml**)**
+**Annexe B : Manifeste Android** (`AndroidManifest.xml`, extrait)
 
 ```
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-<\!-- Requis pour télécharger le modèle Gemini Nano -->
+<!-- Requis pour télécharger le modèle Gemini Nano -->
 <uses-permission android:name="android.permission.INTERNET" />
-<uses-library
-android:name="android.ext.adservices"
-android:required="false" />
-<application
-android:name=".LlmChatApplication"
-android:allowBackup="true"
-android:label="@string/app_name"
-android:theme="@style/Theme.LlmChat">
-<activity
-android:name=".MainActivity"
-android:exported="true">
-<intent-filter>
-<action android:name="android.intent.action.MAIN" />
-<category android:name="android.intent.category.LAUNCHER" />
-</intent-filter>
-</activity>
+<!-- [...] déclaration de l'activité principale -->
 <meta-data
-android:name="com.google.mlkit.genai.ENABLED"
-android:value="true" />
-</application>
-</manifest>
+    android:name="com.google.mlkit.genai.ENABLED"
+    android:value="true" />
 ```
 
-**Annexe C : Code source complet —** LlmViewModel.kt
+**Annexe C : Logique d'inférence** (`LlmViewModel.kt`, extrait)
 
 ```
-// LlmViewModel.kt
-package com.PFE.llmchat
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.google.mlkit.genai.inference.LanguageModelInference
-import com.google.mlkit.genai.inference.InferenceOptions
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-data class ChatMessage(
-val content: String,
-val isUser: Boolean,
-val timestamp: Long = System.currentTimeMillis(),
-val latencyMs: Long = 0
-)
-sealed class InferenceState {
-object Idle : InferenceState()
-object ModelLoading : InferenceState()
-object ModelReady : InferenceState()
-data class Generating(val partialText: String) : InferenceState()
-data class Error(val message: String) : InferenceState()
-}
-class LlmViewModel : ViewModel() {
-private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
-val messages: StateFlow<List<ChatMessage>> = _messages
-private val _state = MutableStateFlow<InferenceState>(InferenceState.Idle)
-val state: StateFlow<InferenceState> = _state
-private var modelClient: LanguageModelInference? = null
 fun initializeModel() {
-viewModelScope.launch {
-_state.value = InferenceState.ModelLoading
-try {
-val availability = LanguageModelInference.checkAvailability()
-if (\!availability.isAvailable) {
-_state.value = InferenceState.Error(
-"Gemini Nano non disponible sur cet appareil. " +
-"Appareils supportés : Pixel 9/10, Galaxy S25/S26."
-)
-return@launch
-}
-modelClient = LanguageModelInference.getClient()
-_state.value = InferenceState.ModelReady
-} catch (e: Exception) {
-_state.value = InferenceState.Error("Erreur initialisation : ${e.message}")
-}
-}
-}
-fun sendMessage(userInput: String) {
-val client = modelClient ?: return
-val startTime = System.currentTimeMillis()
-_messages.value = _messages.value + ChatMessage(userInput, isUser = true)
-viewModelScope.launch {
-_state.value = InferenceState.Generating("")
-val sb = StringBuilder()
-try {
-val options = InferenceOptions.Builder()
-.setMaxTokens(512)
-.setTemperature(0.7f)
-.setTopK(40)
-.build()
-client.generateResponseAsync(
-prompt = buildPrompt(userInput),
-options = options,
-onPartialResult = { partial ->
-sb.append(partial)
-_state.value = InferenceState.Generating(sb.toString())
-},
-onComplete = { _ ->
-val latency = System.currentTimeMillis() - startTime
-_messages.value = _messages.value + ChatMessage(
-content = sb.toString(),
-isUser = false,
-latencyMs = latency
-)
-_state.value = InferenceState.ModelReady
-},
-onError = { e ->
-_state.value = InferenceState.Error("Erreur inférence : ${e.message}")
-}
-)
-} catch (e: Exception) {
-_state.value = InferenceState.Error(e.message ?: "Erreur inconnue")
-}
-}
-}
-private fun buildPrompt(userInput: String): String {
-val history = _messages.value.takeLast(6)
-val sb = StringBuilder()
-history.forEach { msg ->
-if (msg.isUser) sb.append("User: ${msg.content}\n")
-else sb.append("Assistant: ${msg.content}\n")
-}
-sb.append("User: $userInput\nAssistant:")
-return sb.toString()
-}
-override fun onCleared() {
-super.onCleared()
-modelClient?.close()
-}
+    viewModelScope.launch {
+        _state.value = InferenceState.ModelLoading
+        try {
+            val availability = LanguageModelInference.checkAvailability()
+            if (!availability.isAvailable) {
+                _state.value = InferenceState.Error(
+                    "Gemini Nano non disponible sur cet appareil. " +
+                    "Appareils supportés : Pixel 9/10, Galaxy S25/S26.")
+                return@launch
+            }
+            modelClient = LanguageModelInference.getClient()
+            _state.value = InferenceState.ModelReady
+        } // [...]
+    }
 }
 ```
 
-**Annexe D : Code source complet —** MainActivity.kt
+**Annexe D : Activité principale** (`MainActivity.kt`, extrait)
 
 ```
-// MainActivity.kt
-package com.PFE.llmchat
-import android.os.Bundle
-import android.view.inputmethod.EditorInfo
-import androidx.activity.viewModels
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import com.PFE.llmchat.databinding.ActivityMainBinding
-import kotlinx.coroutines.launch
-class MainActivity : AppCompatActivity() {
-private lateinit var binding: ActivityMainBinding
-private val viewModel: LlmViewModel by viewModels()
-private lateinit var chatAdapter: ChatAdapter
 override fun onCreate(savedInstanceState: Bundle?) {
-super.onCreate(savedInstanceState)
-binding = ActivityMainBinding.inflate(layoutInflater)
-setContentView(binding.root)
-setupRecyclerView()
-setupInput()
-observeState()
-viewModel.initializeModel()
-}
-private fun setupRecyclerView() {
-chatAdapter = ChatAdapter()
-binding.rvChat.apply {
-layoutManager = LinearLayoutManager(this@MainActivity).apply {
-stackFromEnd = true
-}
-adapter = chatAdapter
-}
-}
-private fun setupInput() {
-binding.btnSend.setOnClickListener { sendMessage() }
-binding.etInput.setOnEditorActionListener { _, actionId, _ ->
-if (actionId == EditorInfo.IME_ACTION_SEND) {
-sendMessage(); true
-} else false
-}
-}
-private fun sendMessage() {
-val text = binding.etInput.text?.toString()?.trim() ?: return
-if (text.isEmpty()) return
-binding.etInput.text?.clear()
-viewModel.sendMessage(text)
-}
-private fun observeState() {
-lifecycleScope.launch {
-viewModel.state.collect { state ->
-when (state) {
-is InferenceState.ModelLoading ->
-binding.tvStatus.text = "Chargement de Gemini Nano..."
-is InferenceState.ModelReady ->
-binding.tvStatus.text = "Gemini Nano prêt"
-is InferenceState.Generating ->
-binding.tvStatus.text = "Génération en cours..."
-is InferenceState.Error ->
-binding.tvStatus.text = "${state.message}"
-else -> {}
-}
-}
-}
-lifecycleScope.launch {
-viewModel.messages.collect { messages ->
-chatAdapter.submitList(messages)
-binding.rvChat.smoothScrollToPosition(messages.size)
-}
-}
-}
+    super.onCreate(savedInstanceState)
+    binding = ActivityMainBinding.inflate(layoutInflater)
+    setContentView(binding.root)
+    setupRecyclerView()
+    setupInput()
+    observeState()
+    viewModel.initializeModel()
 }
 ```
 
-**Annexe E : Layout XML —** activity_main.xml
+**Annexe E : Layout XML** (`activity_main.xml`, extrait)
 
 ```
-<?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-xmlns:android="http://schemas.android.com/apk/res/android"
-xmlns:app="http://schemas.android.com/apk/res-auto"
-android:layout_width="match_parent"
-android:layout_height="match_parent">
-<TextView
-android:id="@+id/tv_status"
-android:layout_width="match_parent"
-android:layout_height="wrap_content"
-android:padding="8dp"
-android:text="Initialisation..."
-android:textSize="12sp"
-app:layout_constraintTop_toTopOf="parent"/>
-<androidx.recyclerview.widget.RecyclerView
-android:id="@+id/rv_chat"
-android:layout_width="match_parent"
-android:layout_height="0dp"
-android:padding="8dp"
-app:layout_constraintTop_toBottomOf="@id/tv_status"
-app:layout_constraintBottom_toTopOf="@id/input_layout"/>
-<LinearLayout
-android:id="@+id/input_layout"
-android:layout_width="match_parent"
-android:layout_height="wrap_content"
-android:orientation="horizontal"
-android:padding="8dp"
-app:layout_constraintBottom_toBottomOf="parent">
-<com.google.android.material.textfield.TextInputEditText
-android:id="@+id/et_input"
-android:layout_width="0dp"
-android:layout_height="wrap_content"
-android:layout_weight="1"
-android:hint="Posez votre question..."
-android:imeOptions="actionSend"
-android:inputType="textMultiLine"
-android:maxLines="3"/>
-<com.google.android.material.button.MaterialButton
-android:id="@+id/btn_send"
-android:layout_width="wrap_content"
-android:layout_height="wrap_content"
-android:layout_marginStart="8dp"
-android:text="Envoyer"/>
-</LinearLayout>
+<androidx.constraintlayout.widget.ConstraintLayout ...>
+    <TextView
+        android:id="@+id/tv_status"
+        android:text="Initialisation..." ... />
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_chat" ... />
+    <!-- [...] zone de saisie (TextInputEditText + bouton Envoyer) -->
 </androidx.constraintlayout.widget.ConstraintLayout>
 ```
 
+Le code complet de chacun de ces fichiers, y compris la classe `ChatAdapter` non reproduite ici, est disponible sur le dépôt indiqué ci-dessus.

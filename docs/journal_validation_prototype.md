@@ -654,3 +654,41 @@ Un premier run, effectué après les douze questions précédentes dans la même
 **Analyse** : sur les questions de raisonnement multi-étapes (A.2), les deux modèles échouent massivement (Gemma3-1B-IT : 0/5 ; Llama 3.2 1B : 0-1/5 selon le run) — ce résultat, loin d'affaiblir la conclusion déjà établie dans les chapitres 3 et 4 sur la limite de raisonnement des petits modèles embarqués (~1B paramètres), la renforce : elle n'est pas spécifique à `llama.cpp` ni à un défaut d'implémentation du prototype, mais bien une limite du modèle et de son échelle de paramètres, observée de façon cohérente sur deux frameworks d'inférence indépendants (llama.cpp/CPU vs solution propriétaire Google/NPU). Sur les questions factuelles simples (A.1), les deux modèles échouent également sur des connaissances générales basiques, bien qu'avec des erreurs différentes en surface. Les latences ne sont pas directement comparables comme mesure de performance brute : celles de Gemma3-1B-IT reflètent uniquement le temps de génération dans l'application, alors que `total_time_s` du prototype inclut, en plus du calcul, le rechargement complet du sous-processus `llama-cli` à chaque tour (~1,2s fixe, voir mesure dédiée au temps de rechargement ci-dessus) — une charge que l'architecture d'AI Edge Gallery n'a pas, puisqu'elle garde le modèle chargé en mémoire entre les tours.
 
 **Conclusion pour la rédaction** : ce test confirme, avec un second modèle de taille comparable (~1B paramètres) et un second framework d'inférence indépendant, que la limite de raisonnement multi-étapes documentée dans ce mémoire n'est pas un artefact du prototype `llama.cpp` mais une caractéristique partagée par les modèles de cette échelle de paramètres, quelle que soit la solution technique utilisée pour les exécuter.
+
+
+---
+
+## Test 4 — Mesure de la latence de `llama.cpp` sur le Galaxy S26 Ultra (20/09/2026)
+
+**Objectif** : remplacer par une mesure la valeur « ~1,5 à 2 s » qui figurait dans le chapitre 2 (tableaux 2.10 et 2.12) et dans le chapitre 4 (section 4.1.7) pour la latence d'une réponse courte de `llama.cpp` sur le Galaxy S26 Ultra. Cette valeur n'était rattachée à aucune trace : la sortie de `benchmark_complet.sh` n'avait pas été conservée (aucun dossier `~/benchmark_results/` sur l'appareil) et le seul fichier retrouvé, `metrics.json`, ne contenait que des entrées du 30/08/2026 (la copie archivée ci-dessous ne conserve que les entrées du 20/09/2026).
+
+**Conditions du test**
+
+| Élément | Valeur |
+|---|---|
+| Appareil | Galaxy S26 Ultra (Snapdragon 8 Elite, 12 Go RAM) |
+| Environnement | Termux natif |
+| Outil | `chatbot.py` (prototype du chapitre 3), qui pilote le binaire `llama-cli` en sous-processus |
+| Build `llama-cli` | b10154-0e4a03622 |
+| Modèle | Llama 3.2 1B Instruct Q4_K_M (`~/models/llama-3.2-1b-instruct-q4_k_m.gguf`) |
+| Prompt | Le même que pour le test LiteRT / AI Edge Gallery : « Explique-moi le concept d'intelligence artificielle en 3 phrases. » |
+| Protocole | 3 runs, chacun dans une session neuve (contexte vide) |
+
+**Résultats bruts (3 runs, entrées 4 à 6 de `metrics.json`)**
+
+| Run | Latence totale | dont chargement du modèle | Decode | Prefill | Tokens générés |
+|---|---|---|---|---|---|
+| 1 (06:37:24) | 3,14 s | 1,04 s | 55,32 tok/s | 216,16 tok/s | 77 |
+| 2 (06:37:41) | 3,35 s | 1,04 s | 55,45 tok/s | 218,16 tok/s | 89 |
+| 3 (06:37:58) | 2,72 s | 1,04 s | 55,37 tok/s | 217,98 tok/s | 54 |
+| Moyenne | 3,07 s (2,72 à 3,35 s) | 1,04 s | 55,38 tok/s | 217,43 tok/s | |
+
+Le prompt fait 124 tokens dans les trois runs. Le chargement du modèle représente environ 1,04 s par réponse (le prototype recharge le modèle à chaque tour, voir section 3.2.1 du chapitre 3) ; la latence hors rechargement est donc d'environ 2,03 s. Consommation mémoire relevée : environ 1680 Mo. La latence totale dépend du nombre de tokens générés (54 à 89 selon le run) ; le débit de décodage, lui, est stable à ±0,1 tok/s.
+
+**Cohérence avec les autres entrées du fichier** : les trois premières entrées (06:35 à 06:37) sont des essais préliminaires. L'entrée 1 utilise le même prompt de 124 tokens (58 tokens générés, 3,01 s au total, décodage à 55,76 tok/s) et confirme l'ordre de grandeur. Les entrées 2 et 3 correspondent à d'autres tâches du prototype (prompts de 163 et 594 tokens, réponses de 27 et 18 tokens) : elles ne sont pas comparables (5,76 s au total pour l'entrée 3, dominé par un prefill de 4,2 s sur 594 tokens à 141 tok/s).
+
+**Conclusion** : la latence d'une réponse courte de `llama.cpp` sur le S26 Ultra est de **3,07 s en moyenne avec rechargement du modèle** (arrondie à « 3,1 s » dans le mémoire) et d'environ **2,0 s hors rechargement**. La valeur « ~1,5 à 2 s » n'était pas étayée et a été retirée. Conséquences appliquées dans le mémoire : tableaux 2.10 et 2.12 (chapitre 2), paragraphe « Protocole de la mesure llama.cpp » (section 3.4 du chapitre 2), section 4.1.7 du chapitre 4 (LiteRT environ 2 à 3 fois plus lent en latence totale au lieu de 4 fois), et paragraphe de test complémentaire en section 3.8 du chapitre 3.
+
+**Réserve** : ce test compare deux modèles de tailles différentes (Llama 3.2 1B pour `llama.cpp`, Gemma 4 E2B d'environ 2B paramètres pour LiteRT) ; l'écart de latence ne peut donc pas être attribué au seul framework.
+
+**Trace** : le fichier `metrics.json` du S26 Ultra (chemin sur l'appareil : `~/llm-smartphone/prototype-cli/results/metrics.json`) est archivé dans `results/metrics_s26_2026-09-20.json` à la racine du dépôt. Il contient six entrées, toutes du 20/09/2026 : les trois runs du test en sont les entrées 4 à 6.
